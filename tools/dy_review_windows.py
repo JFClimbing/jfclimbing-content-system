@@ -76,7 +76,9 @@ EXTRACT_JS = """
       if (lab && val) metrics[lab.innerText.trim()] = val.innerText.trim();
     }
     const head = c.innerText.split('\\n').map(s => s.trim()).filter(Boolean).slice(0, 12);
-    out.push({ title: titleEl ? titleEl.innerText.trim() : '', head: head, metrics: metrics });
+    // 标题元素里混入了「编辑作品/设置权限/删除作品」等悬停菜单文字，只取第一行
+    const titleText = (titleEl ? titleEl.innerText : c.innerText).split('\\n')[0].trim();
+    out.push({ title: titleText, head: head, metrics: metrics });
   }
   return { count: cards.length, cards: out };
 }
@@ -103,25 +105,35 @@ def _wait_login(page, timeout=360):
     return False
 
 
-def scrape(page, rounds=14):
-    """滚动加载 + 抓取，直到卡片数量稳定。"""
-    last = 0
+def scrape(page, rounds=25):
+    """真实滚轮滚动 + 抓取，直到卡片数量稳定。
+
+    注意：此列表是自定义滚动容器，window.scrollBy / scrollTop 均无效，
+    必须用真实滚轮事件（等价于 minis-browser-use 的 scroll 命令）。
+    """
+    last = -1
+    stable = 0
     for _ in range(rounds):
-        page.evaluate(SCROLL_JS)
+        vw = page.viewport_size or {"width": 1280, "height": 720}
+        page.mouse.move(vw["width"] // 2, vw["height"] // 2)
+        page.mouse.wheel(0, 900)
         time.sleep(0.8)
         r = page.evaluate(EXTRACT_JS)
-        if r.get("count") and r["count"] == last and last > 0:
-            # 连续两次数量不变，且已抓到，认为加载完毕
-            if _ >= 2:
+        n = r.get("count", 0)
+        if n == last:
+            stable += 1
+            if stable >= 3 and n > 0:
                 break
-        last = r.get("count", 0)
+        else:
+            stable = 0
+        last = n
     return page.evaluate(EXTRACT_JS)
 
 
 def parse(cards):
     out = []
     for c in cards:
-        title = c.get("title") or ""
+        title = (c.get("title") or "").split("\n")[0].strip()
         m = {k: c.get("metrics", {}).get(k, "-") for k in METRIC_ORDER}
         out.append({"title": title[:120], "raw": m, "images": None,
                     "date": "", "sched": "", "status": "published", "pinned": False})
