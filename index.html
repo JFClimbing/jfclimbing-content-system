@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>骄峰内容预测器 · JFClimbing Content Predictor</title>
+<style>
+:root {
+  --bg: #f5f3ee;
+  --card: #ffffff;
+  --ink: #2d2a24;
+  --muted: #8a8578;
+  --accent: #6b7a3f;      /* 橄榄绿 */
+  --accent-dark: #4e5a2e;
+  --line: #e4e0d6;
+  --warn: #b5651d;
+  --good: #3f7a4e;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+header {
+  background: linear-gradient(135deg, var(--accent-dark), var(--accent));
+  color: #fff;
+  padding: 28px 20px 22px;
+  text-align: center;
+}
+header h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: 0.5px; }
+header p { font-size: 0.82rem; opacity: 0.85; margin-top: 6px; }
+.tabs {
+  display: flex;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 10;
+}
+.tabs button {
+  flex: 1;
+  padding: 12px 4px;
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+  border-bottom: 2px solid transparent;
+}
+.tabs button.active { color: var(--accent-dark); border-bottom-color: var(--accent); font-weight: 600; }
+main { max-width: 720px; margin: 0 auto; padding: 18px 14px 60px; }
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 18px 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border: 1px solid var(--line);
+}
+.card h2 { font-size: 1rem; margin-bottom: 10px; color: var(--accent-dark); }
+.dim { margin-bottom: 14px; }
+.dim .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.dim .name { font-weight: 600; font-size: 0.92rem; }
+.dim .name small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+.dim .val { font-size: 0.95rem; font-weight: 700; color: var(--accent-dark); }
+.dim .desc { font-size: 0.76rem; color: var(--muted); margin-bottom: 6px; }
+input[type=range] { width: 100%; accent-color: var(--accent); height: 6px; }
+.score-hero {
+  text-align: center;
+  padding: 22px 16px;
+  background: linear-gradient(135deg, #f0f2e6, #e8ecd9);
+  border: 2px solid var(--accent);
+  border-radius: 14px;
+}
+.score-hero .big { font-size: 3rem; font-weight: 800; color: var(--accent-dark); line-height: 1; }
+.score-hero .label { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+.score-hero .grade { margin-top: 8px; font-size: 0.95rem; font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+th, td { padding: 7px 6px; text-align: left; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; font-size: 0.78rem; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pred-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--line); font-size: 0.9rem; }
+.pred-row:last-child { border-bottom: none; }
+.pred-row .k { color: var(--muted); }
+.pred-row .v { font-weight: 700; }
+.pred-row .v .range { color: var(--muted); font-weight: 400; font-size: 0.8rem; }
+.tag { display: inline-block; font-size: 0.72rem; padding: 2px 8px; border-radius: 10px; margin: 2px 2px 0 0; }
+.tag.green { background: #e6ecd9; color: var(--accent-dark); }
+.tag.orange { background: #f7eadb; color: var(--warn); }
+.tag.red { background: #f9e3e0; color: #a33; }
+.note { font-size: 0.78rem; color: var(--muted); background: #faf9f5; border-left: 3px solid var(--accent); padding: 8px 10px; border-radius: 0 8px 8px 0; margin: 10px 0; }
+.footer { text-align: center; color: var(--muted); font-size: 0.75rem; margin-top: 24px; }
+button.cta {
+  background: var(--accent-dark); color: #fff; border: none; padding: 10px 20px;
+  border-radius: 8px; font-size: 0.9rem; font-family: inherit; cursor: pointer; margin-top: 8px;
+}
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏔️ 骄峰内容预测器</h1>
+  <p>7维打分 → 综合分 → 预测播放/互动 · 已内置真实校准数据（×0.85）</p>
+</header>
+
+<div class="tabs">
+  <button class="active" onclick="showTab('score',this)">打分预测</button>
+  <button onclick="showTab('history',this)">历史预测</button>
+  <button onclick="showTab('calib',this)">校准数据</button>
+  <button onclick="showTab('guide',this)">使用指南</button>
+</div>
+
+<main>
+<!-- ============ 打分预测 ============ -->
+<div id="tab-score">
+  <div class="card">
+    <h2>📋 7 维打分（0–5分，拖动滑块）</h2>
+    <div id="dims"></div>
+  </div>
+
+  <div class="score-hero" id="scoreHero">
+    <div class="label">综合分 composite</div>
+    <div class="big" id="composite">0.0</div>
+    <div class="grade" id="grade">—</div>
+  </div>
+
+  <div class="card hidden" id="predCard">
+    <h2>🔮 预测结果（已校准 ×0.85）</h2>
+    <div id="predRows"></div>
+    <div class="note" id="predNote"></div>
+  </div>
+
+  <div class="card">
+    <h2>📝 一句话判断标准</h2>
+    <div id="verdicts" style="font-size:0.86rem;"></div>
+  </div>
+</div>
+
+<!-- ============ 历史预测 ============ -->
+<div id="tab-history" class="hidden">
+  <div class="card">
+    <h2>📊 预测登记表（9条）</h2>
+    <table>
+      <tr><th>内容</th><th class="num">发布</th><th class="num">预测播放</th><th class="num">实际</th><th>状态</th></tr>
+      <tbody id="historyBody"></tbody>
+    </table>
+    <div class="note">⚠️ 已校准样本：主锁 -13.1% / 主绳 -11.2% → 中枢统一 ×0.85</div>
+  </div>
+</div>
+
+<!-- ============ 校准数据 ============ -->
+<div id="tab-calib" class="hidden">
+  <div class="card">
+    <h2>🏔️ 账号基线</h2>
+    <div class="pred-row"><span class="k">账号</span><span class="v">骄峰 Rock Climber · 抖音</span></div>
+    <div class="pred-row"><span class="k">历史中位播放</span><span class="v">2,883</span></div>
+    <div class="pred-row"><span class="k">内容形态</span><span class="v">图文 8张 · 3:4 · 手绘橄榄绿</span></div>
+    <div class="pred-row"><span class="k">合集</span><span class="v">攀岩装备基础篇（12集）</span></div>
+    <div class="pred-row"><span class="k">发布时间</span><span class="v">19:30 定时</span></div>
+  </div>
+  <div class="card">
+    <h2>⭐ 已验证规律（观察池节选）</h2>
+    <div id="obsList"></div>
+  </div>
+</div>
+
+<!-- ============ 使用指南 ============ -->
+<div id="tab-guide" class="hidden">
+  <div class="card">
+    <h2>🚀 三步工作流</h2>
+    <div style="font-size:0.9rem;">
+      <p><b>① 打分</b> — 发布前，对定稿脚本按 7 维打分，得到综合分。</p>
+      <p><b>② 预测</b> — 综合分自动换算预测播放/互动区间（已内置×0.85校准）。写完即锁，不可改。</p>
+      <p><b>③ 复盘</b> — T+3天贴实际数据，对比预测，把偏差记下来，进化公式。</p>
+    </div>
+  </div>
+  <div class="card">
+    <h2>📐 预测公式（本工具内置）</h2>
+    <table>
+      <tr><th>综合分</th><th class="num">播放中枢</th><th class="num">区间</th></tr>
+      <tr><td>≥ 8.5</td><td class="num">5,800</td><td class="num">4,500 – 7,500</td></tr>
+      <tr><td>8.0 – 8.4</td><td class="num">5,200</td><td class="num">4,000 – 6,800</td></tr>
+      <tr><td>7.5 – 7.9</td><td class="num">4,400</td><td class="num">3,400 – 5,800</td></tr>
+      <tr><td>7.0 – 7.4</td><td class="num">3,700</td><td class="num">2,800 – 4,900</td></tr>
+      <tr><td>6.5 – 6.9</td><td class="num">3,100</td><td class="num">2,400 – 4,100</td></tr>
+      <tr><td>&lt; 6.5</td><td class="num">2,400</td><td class="num">1,800 – 3,200</td></tr>
+    </table>
+    <div class="note">AB（受众宽度）修正：AB=5 中枢+10% ｜ AB≤2 中枢−15%</div>
+  </div>
+  <div class="card">
+    <h2>🤖 配合 AI 使用（DeepSeek 等）</h2>
+    <div class="note">下载本仓库，把 <code>deepseek-system-prompt.md</code> 粘贴给 AI，再上传 <code>workspace/</code> 里的数据。之后贴脚本说「打分预测」、贴数据说「复盘」。</div>
+  </div>
+</div>
+
+<div class="footer">
+  JFClimbing 内容系统 · <a href="https://github.com/JFClimbing/jfclimbing-content-system" style="color:var(--accent-dark)">GitHub 开源</a><br>
+  数据截至 2026-09-22 · 预测中枢已按实测偏差 ×0.85 校准
+</div>
+</main>
+
+<script>
+// ============ 7 维定义 ============
+const DIMS = [
+  { key:'ER', name:'ER 告知感', desc:'跟完后有没有"原来这么简单"的顿悟？', hint:'0=纯步骤搬运 ｜ 5=揭示更深原理' },
+  { key:'HP', name:'HP 钩子力', desc:'开头10秒内确认"这就是我要解决的问题"？', hint:'0=标题模糊 ｜ 5=开头就是具体痛点' },
+  { key:'QL', name:'QL 实用密度', desc:'有没有能直接用的清单/步骤/数据？', hint:'0=全是概念 ｜ 5=多个可复制内容' },
+  { key:'NA', name:'NA 递进感', desc:'有没有从简到难的清晰弧线？', hint:'0=步骤无逻辑 ｜ 5=递进明确' },
+  { key:'AB', name:'AB 受众宽度', desc:'这个问题有多少人会遇到？', hint:'0=极小众 ｜ 5=全平台用户' },
+  { key:'SR', name:'SR 分享力', desc:'有没有转发给朋友的理由？', hint:'0=没理由 ｜ 5=利他理由明确' },
+  { key:'SAT', name:'SAT 满意度', desc:'跟完后的感觉？', hint:'0=浪费时间 ｜ 5=有掌控感' },
+];
+
+// ============ 历史预测 ============
+const HISTORY = [
+  { t:'入门装备全景（2张）', d:'09-18', p:5000, a:1315, s:'❌ 证伪' },
+  { t:'主锁科普（8张）', d:'09-12', p:9751, a:8478, s:'⚠️ -13%' },
+  { t:'主绳辅绳（10张）', d:'09-15', p:3600, a:3198, s:'⚠️ -11%' },
+  { t:'保护器（7张）', d:'09-20', p:6000, a:null, s:'⏳ 待验证' },
+  { t:'快挂（8张·3:4）', d:'09-22', p:5500, a:null, s:'⏳ 待验证' },
+  { t:'扁带（8张）', d:'09-24', p:5200, a:null, s:'⏳ 待验证' },
+  { t:'牛尾/自保（8张）', d:'09-26', p:3500, a:null, s:'📝 已预测' },
+  { t:'头盔（8张）', d:'09-28', p:4200, a:null, s:'📝 已预测' },
+  { t:'安全带（8张）', d:'09-30', p:5800, a:null, s:'📝 已预测' },
+];
+
+// ============ 观察池 ============
+const OBS = [
+  { t:'OBS-016 ⭐ 标题模式', d:'「避坑/场景/后果」型标题播放 = 装备名型的 3–5 倍（保姆级8,384 / 避坑7,669 vs 渔人结1,044）' },
+  { t:'OBS-013 张数', d:'8张划走率48.9%（最优）vs 10张52.9%——第9、10张是净损失' },
+  { t:'OBS-018 平台差异', d:'小红书分享率是抖音的7倍；同内容抖音播放是小红书的4.6–18.3倍' },
+  { t:'OBS-019 画布3:4', d:'首次换3:4画布（快挂09-22），待验证划走率与封面冲击力的消长' },
+  { t:'OBS-020 播放≠吸粉', d:'龟龟结构1万播吸粉0.05% vs 下降器掉落7千播吸粉0.30%——吸粉由内容类型驱动' },
+  { t:'OBS-021 收藏率', d:'工具型内容收藏率高（主绳辅绳1.16%全账号最高）——清单/检查点=收藏核弹' },
+  { t:'OBS-016b 校准偏差', d:'预测中枢系统性偏高11–13% → 统一×0.85' },
+];
+
+// ============ 预测换算 ============
+const PLAY_BUCKETS = [
+  { min:8.5, center:5800, lo:4500, hi:7500 },
+  { min:8.0, center:5200, lo:4000, hi:6800 },
+  { min:7.5, center:4400, lo:3400, hi:5800 },
+  { min:7.0, center:3700, lo:2800, hi:4900 },
+  { min:6.5, center:3100, lo:2400, hi:4100 },
+  { min:0,   center:2400, lo:1800, hi:3200 },
+];
+
+function calcPrediction(composite, scores) {
+  const bucket = PLAY_BUCKETS.find(b => composite >= b.min);
+  let play = bucket.center, lo = bucket.lo, hi = bucket.hi;
+  const ab = scores.AB;
+  if (ab >= 5) { play *= 1.10; lo *= 1.05; hi *= 1.10; }
+  else if (ab <= 2) { play *= 0.85; lo *= 0.82; hi *= 0.88; }
+  play = Math.round(play); lo = Math.round(lo); hi = Math.round(hi);
+  const like = Math.round(play * 0.019);
+  const save = Math.round(play * 0.025);
+  const share = Math.round(play * 0.0015);
+  const fans = Math.round(play * 0.0017);
+  const skip = bucket === PLAY_BUCKETS[0] ? '44–50%' : bucket === PLAY_BUCKETS[1] ? '46–52%' : '48–55%';
+  return { play, lo, hi, like, save, share, fans, skip };
+}
+
+// ============ 渲染 ============
+function showTab(id, btn) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  ['score','history','calib','guide'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('hidden', t !== id);
+  });
+}
+
+function renderDims() {
+  const wrap = document.getElementById('dims');
+  DIMS.forEach((d, i) => {
+    const div = document.createElement('div');
+    div.className = 'dim';
+    div.innerHTML = `
+      <div class="top"><span class="name">${d.name} <small>${d.key}</small></span>
+      <span class="val" id="val-${d.key}">3</span></div>
+      <div class="desc">${d.desc}</div>
+      <input type="range" min="0" max="5" value="3" step="1"
+             oninput="updateDim('${d.key}', this.value)">
+      <div style="font-size:0.72rem;color:var(--muted)">${d.hint}</div>`;
+    wrap.appendChild(div);
+  });
+}
+
+function updateDim(key, val) {
+  document.getElementById('val-' + key).textContent = val;
+  compute();
+}
+
+function compute() {
+  let sum = 0;
+  const scores = {};
+  DIMS.forEach(d => {
+    const v = parseInt(document.getElementById('val-' + d.key).textContent);
+    scores[d.key] = v;
+    sum += v;
+  });
+  const composite = Math.round(sum / 7 * 2.0 * 10) / 10;
+  document.getElementById('composite').textContent = composite.toFixed(1);
+  const g = document.getElementById('grade');
+  if (composite >= 8.5) g.textContent = '🏆 爆款候选 — 全系列最强';
+  else if (composite >= 8.0) g.textContent = '🔥 强内容 — 值得重点推';
+  else if (composite >= 7.0) g.textContent = '👍 中上 — 正常发挥';
+  else if (composite >= 6.0) g.textContent = '😐 中等 — 找钩子/痛点再打磨';
+  else g.textContent = '⚠️ 偏弱 — 建议按 rubric 逐维改进后再发';
+
+  const p = calcPrediction(composite, scores);
+  document.getElementById('predCard').classList.remove('hidden');
+  document.getElementById('predRows').innerHTML = `
+    <div class="pred-row"><span class="k">▶ 播放</span><span class="v">${p.play.toLocaleString()} <span class="range">（${p.lo.toLocaleString()} – ${p.hi.toLocaleString()}）</span></span></div>
+    <div class="pred-row"><span class="k">📉 划走率</span><span class="v">${p.skip}</span></div>
+    <div class="pred-row"><span class="k">👍 点赞</span><span class="v">${p.like}</span></div>
+    <div class="pred-row"><span class="k">⭐ 收藏</span><span class="v">${p.save} <span class="range">（≈点赞的1.3倍，工具型）</span></span></div>
+    <div class="pred-row"><span class="k">🔁 分享</span><span class="v">${p.share}</span></div>
+    <div class="pred-row"><span class="k">👥 吸粉</span><span class="v">${p.fans}</span></div>`;
+  document.getElementById('predNote').innerHTML =
+    `已应用校准 ×0.85（主锁 -13.1% / 主绳 -11.2% 实测偏差）${scores.AB >= 5 ? ' ｜ AB=5 受众加成 +10%' : ''}${scores.AB <= 2 ? ' ｜ AB≤2 受众折减 -15%' : ''}`;
+
+  // 判定标准
+  document.getElementById('verdicts').innerHTML = `
+    <p>✅ 播放 ≥ ${p.hi.toLocaleString()} → 对应假设获支持</p>
+    <p>➖ 播放 ${p.lo.toLocaleString()} – ${p.hi.toLocaleString()} → 符合预期</p>
+    <p>⚠️ 播放 < ${p.lo.toLocaleString()} → 检查钩子/张数/时段变量</p>
+    <p>📌 划走率 < 48% → 内容留住了人 ｜ &gt; 55% → 版式或前3张在流失</p>`;
+}
+
+function renderHistory() {
+  const tb = document.getElementById('historyBody');
+  HISTORY.forEach(h => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${h.t}</td><td class="num">${h.d}</td><td class="num">${h.p.toLocaleString()}</td>
+      <td class="num">${h.a ? h.a.toLocaleString() : '—'}</td><td>${h.s}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function renderObs() {
+  const wrap = document.getElementById('obsList');
+  OBS.forEach(o => {
+    wrap.innerHTML += `<div class="note"><b>${o.t}</b><br>${o.d}</div>`;
+  });
+}
+
+renderDims();
+renderHistory();
+renderObs();
+compute();
+</script>
+</body>
+</html>
