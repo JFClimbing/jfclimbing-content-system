@@ -36,12 +36,15 @@
 │   │   ├── migrations/       # schema 升级路径
 │   │   ├── adapters/         # 数据源适配器（抖音/热点）
 │   │   └── hooks/            # 预测不可变性强制钩子
-│   └── image-compression/    # 图片压缩技能（会话体积管理）
+│   ├── image-compression/    # 图片压缩技能（会话体积管理）
+│   │   └── SKILL.md
+│   └── social-media-login/   # 抖音/小红书后台数据抓取（复盘对答案）
 │       └── SKILL.md
 ├── tools/
 │   ├── img_guard.py          # 附件自动压缩（sweep/check/guard 模式）
 │   ├── make_predictions.py   # 预测生成器
-│   ├── dy_review.py          # 抖音数据复盘（需要浏览器登录态）
+│   ├── dy_review.py          # 抖音数据复盘（Minis 内置浏览器）
+│   ├── dy_review_windows.py  # 抖音数据复盘（Windows Playwright+Edge）
 │   ├── gen_candidates.py     # 候选选题生成
 │   └── build_videos.py       # 视频构建工具
 ├── workspace/
