@@ -22,6 +22,13 @@ import glob
 import time
 import datetime
 
+# Windows 默认控制台编码 GBK 遇到 emoji 会抛 UnicodeEncodeError，统一转 UTF-8 输出
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:
