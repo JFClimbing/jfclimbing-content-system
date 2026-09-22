@@ -1,0 +1,20 @@
+# 凭证
+.auth*
+.cheat-secrets.json
+*.env
+
+# 缓存
+.cheat-cache/
+__pycache__/
+*.pyc
+
+# 临时
+*.tmp
+*.bak
+thumbs.db
+
+# 视频/图片素材（太大不入库）
+videos/
+*.mp4
+*.mov
+*.heic
