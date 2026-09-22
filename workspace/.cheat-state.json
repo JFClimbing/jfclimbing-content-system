@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.4",
+  "skill_version": "1.0.0",
+  "rubric_version": "v0",
+  "content_form": "tutorial-builder",
+  "typical_duration_seconds": 240,
+  "target_publish_cadence_days": 2,
+  "rubric_form_mismatch": true,
+  "benchmark_status": "imported",
+  "benchmark_name": "杨秉润YANG",
+  "benchmark_sample_count": 5,
+  "baseline_plays": 2752,
+  "calibration_samples": 16,
+  "data_collection": "adapter",
+  "pool_status": "markdown",
+  "data_layer": "markdown",
+  "hooks_installed": true,
+  "enabled_trend_sources": [
+    "manual-paste"
+  ],
+  "enabled_perf_adapters": [
+    "douyin-browser",
+    "manual-paste"
+  ],
+  "last_bump_at": null,
+  "last_bump_self_audited": false,
+  "last_published_at": "2026-09-15T20:29:54+08:00",
+  "last_published_file": "videos/主绳辅绳（合集第2集，图文10张）",
+  "last_retro_at": "2026-09-13T07:25:00+08:00",
+  "last_trends_run_at": null,
+  "last_trends_added_count": 0,
+  "last_prediction_self_scored": false,
+  "last_self_scored_at": null,
+  "consecutive_directional_errors": [],
+  "pending_retros": [],
+  "shoots": [],
+  "in_progress_session": null,
+  "initialized_at": "2026-09-13T05:11:53+08:00",
+  "monetization_setup": {
+    "channel_1": "抖音粉丝群 → 线下课",
+    "channel_2": "平台合作",
+    "ops_playbook": "运营手册/粉丝群运营-前7天.md",
+    "note": "企业号（山行户外领队）不可用——属原公司。改用个人号粉丝群承接。"
+  }
+}
