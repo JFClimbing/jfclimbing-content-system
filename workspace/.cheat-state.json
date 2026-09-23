@@ -10,7 +10,7 @@
   "benchmark_name": "杨秉润YANG",
   "benchmark_sample_count": 5,
   "baseline_plays": 2752,
-  "calibration_samples": 16,
+  "calibration_samples": 17,
   "data_collection": "adapter",
   "pool_status": "markdown",
   "data_layer": "markdown",
@@ -24,13 +24,13 @@
   ],
   "last_bump_at": null,
   "last_bump_self_audited": false,
-  "last_published_at": "2026-09-15T20:29:54+08:00",
-  "last_published_file": "videos/主绳辅绳（合集第2集，图文10张）",
-  "last_retro_at": "2026-09-13T07:25:00+08:00",
+  "last_published_at": "2026-09-22T19:32:56+08:00",
+  "last_published_file": "predictions/2026-09-18_第04集_快挂.md",
+  "last_retro_at": "2026-09-23T19:57:39+08:00",
   "last_trends_run_at": null,
   "last_trends_added_count": 0,
-  "last_prediction_self_scored": false,
-  "last_self_scored_at": null,
+  "last_prediction_self_scored": true,
+  "last_self_scored_at": "2026-09-22T16:15:00+08:00",
   "consecutive_directional_errors": [],
   "pending_retros": [],
   "shoots": [],
@@ -41,5 +41,7 @@
     "channel_2": "平台合作",
     "ops_playbook": "运营手册/粉丝群运营-前7天.md",
     "note": "企业号（山行户外领队）不可用——属原公司。改用个人号粉丝群承接。"
-  }
+  },
+  "early_retro": false,
+  "early_retro_note": "ep03 复查：发布 09-20 19:00 → 复盘 09-23 19:57 = T+3.04d，RETRO_WINDOW_DAYS=3 已满足，**非早复盘**"
 }
