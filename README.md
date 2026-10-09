@@ -36,15 +36,12 @@
 │   │   ├── migrations/       # schema 升级路径
 │   │   ├── adapters/         # 数据源适配器（抖音/热点）
 │   │   └── hooks/            # 预测不可变性强制钩子
-│   ├── image-compression/    # 图片压缩技能（会话体积管理）
-│   │   └── SKILL.md
-│   └── social-media-login/   # 抖音/小红书后台数据抓取（复盘对答案）
+│   └── image-compression/    # 图片压缩技能（会话体积管理）
 │       └── SKILL.md
 ├── tools/
 │   ├── img_guard.py          # 附件自动压缩（sweep/check/guard 模式）
 │   ├── make_predictions.py   # 预测生成器
-│   ├── dy_review.py          # 抖音数据复盘（Minis 内置浏览器）
-│   ├── dy_review_windows.py  # 抖音数据复盘（Windows Playwright+Edge）
+│   ├── dy_review.py          # 抖音数据复盘（需要浏览器登录态）
 │   ├── gen_candidates.py     # 候选选题生成
 │   └── build_videos.py       # 视频构建工具
 ├── workspace/
@@ -55,12 +52,15 @@
 │   ├── candidates.md         # 候选选题池
 │   ├── benchmark.md          # 对标：杨秉润YANG（5条已拆解）
 │   ├── STATUS.md             # 看板
-│   ├── data/
-│   │   └── prediction_registry.json  # 预测登记（9条，自动对答案）
 │   └── predictions/          # 23份历史预测（含复盘数据）
 │       ├── 2026-05-19_攀岩训练板diy.md  （第1份）
 │       ├── ...
 │       └── 2026-09-22_第08集_安全带.md  （最新）
+├── data/                     # 原始数据（按平台分类）
+│   ├── douyin/               # 抖音作品数据（dy_works_YYYY-MM-DD.json）
+│   ├── xiaohongshu/          # 小红书笔记数据 + 图文正文 OCR（note_content/）
+│   ├── wechat/               # 公众号数据与文案
+│   └── prediction_registry.json  # 预测登记（自动对答案）
 ├── scripts/                  # 脚本（12集内容）
 │   ├── 第00集 ~ 第11集_*.md  # 逐集脚本（标题/正文/逐张图/标签）
 │   ├── 发布包_总表.md         # 一页总表（发布时间/标题/简介/标签）
