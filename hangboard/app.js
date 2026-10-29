@@ -79,6 +79,17 @@ function ac(){
   if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
   return AC;
 }
+let fxGainNode = null;
+function fxBus(){
+  const c = ac(); if(!c) return null;
+  if(!fxGainNode){
+    fxGainNode = c.createGain();
+    fxGainNode.gain.value = 1;
+    fxGainNode.connect(c.destination);
+  }
+  return fxGainNode;
+}
+
 function beep(freq, dur, vol){
   if(!cfg.beep) return;
   const c = ac(); if(!c) return;
@@ -88,7 +99,9 @@ function beep(freq, dur, vol){
   o.type = 'sine'; o.frequency.value = freq;
   g.gain.setValueAtTime(vol, c.currentTime);
   g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
-  o.connect(g); g.connect(c.destination);
+  o.connect(g);
+  const bus = fxBus();
+  g.connect(bus || c.destination);
   o.start(); o.stop(c.currentTime + dur);
 }
 function triple(){ [0,140,280].forEach((d,i)=>setTimeout(()=>beep(660+i*220,0.11),d)); }
@@ -105,8 +118,9 @@ function speak(text, rate){
     u.volume = 1;            // 系统音量上限
     u.rate = rate || 1.15;
     u.pitch = 1;
+    u.onend = () => { clearTimeout(duckTimer); duckTimer = null; applyVol(cfg.musicVol); };
     speechSynthesis.speak(u);
-    duck(1100);              // 说话时压住音乐
+    duck(2500);              // 说话时压住音乐（有 onend 兜底）
   }catch(e){}
 }
 
@@ -235,6 +249,7 @@ async function loadMusicFile(file){
   saveCfg();
   if(running && !paused) musicStart();
   renderDrawer();
+  syncMusicUI();
 }
 async function restoreMusic(){
   const blob = await idbGet('music');
@@ -474,8 +489,9 @@ function tick(){
     const r = Math.ceil(left);
     if(r > 0 && r <= 3 && r !== seg._lastBeep){
       seg._lastBeep = r;
-      beep(520, 0.08, 0.30); buzz(20);
-      speak(String(r), 1.4);          // 倒数：三 / 二 / 一
+      buzz(20);
+      if(cfg.voice){ speak(String(r), 1.45); }
+      else { beep(520, 0.09, 0.34); }
     }
   }
 
@@ -497,12 +513,19 @@ function next(){
   remain = TL[idx].dur;
   enterSegment();
   const type = TL[idx].type;
-  if(type === 'work'){ triple(); buzz([40,60,40]); }
-  else if(type === 'rest' || type === 'setrest'){ beep(440,0.16,0.3); buzz(120); }
-  else if(type === 'cool' || type === 'done'){ beep(660,0.2,0.3); }
-  else { beep(600,0.1,0.2); }
   const say = phaseSpeech(TL[idx]);
-  if(say) setTimeout(() => speak(say), 120);
+  if(type === 'work') buzz([40,60,40]);
+  else if(type === 'rest' || type === 'setrest') buzz(120);
+
+  // ⭐ 语音和提示音二选一，不同时响，避免叠在一起
+  if(cfg.voice && say){
+    speak(say);
+  } else {
+    if(type === 'work') triple();
+    else if(type === 'rest' || type === 'setrest') beep(440,0.16,0.3);
+    else if(type === 'cool' || type === 'done') beep(660,0.2,0.3);
+    else beep(600,0.1,0.2);
+  }
   paintStage();
 }
 function finish(){
@@ -695,11 +718,6 @@ function renderDrawer(){
       ${cfg.musicName ? '<div class="row"><div class="lab">操作</div><button class="minibtn" id="playMusicTest">试听</button><button class="minibtn" id="delMusic">删除</button></div>' : ''}
     </div>
 
-    <div class="group">
-      <h3>最近训练</h3>
-      <div class="hist" id="hist"></div>
-    </div>
-
     <button class="btn pri" id="btnApply">完成</button>
     <button class="btn ghost" id="btnClearHist">清空训练记录</button>
     <div style="height:20px"></div>
@@ -707,17 +725,45 @@ function renderDrawer(){
   renderHist();
   bindDrawer();
 }
-function renderHist(){
-  const el = $('hist'); if(!el) return;
-  let h = [];
-  try{ h = JSON.parse(localStorage.getItem(HKEY) || '[]'); }catch(e){}
-  if(!h.length){ el.innerHTML = '<div class="empty">还没有训练记录</div>'; return; }
-  el.innerHTML = h.slice(0,8).map(x => {
-    const d = new Date(x.d);
-    const ds = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    return `<div>${ds} · <b>${x.name}</b> · ${x.sets}×${x.reps}×${x.work}s · 共 ${fmt(x.total)}</div>`;
-  }).join('');
+function renderHist(){ /* 兼容旧调用 */ }
+
+function readHist(){
+  try{ return JSON.parse(localStorage.getItem(HKEY) || '[]'); }catch(e){ return []; }
 }
+function renderHistFull(){
+  const box = $('histFull'), st = $('statsBox');
+  if(!box) return;
+  const h = readHist();
+  if(!h.length){
+    box.innerHTML = '<div class="empty">还没有训练记录<br><span style="font-size:12px">完成一次训练后会自动记下</span></div>';
+    if(st) st.innerHTML = '';
+    return;
+  }
+  box.innerHTML = h.map(x => {
+    const d = new Date(x.d);
+    const ds = `${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    return `<div class="histrow">
+      <div class="h1">${x.name}</div>
+      <div class="h2">${ds} · 用时 ${fmt(x.total)}</div>
+    </div>`;
+  }).join('');
+
+  if(st){
+    const now = new Date();
+    const weekAgo = now.getTime() - 7*24*3600*1000;
+    const monthAgo = now.getTime() - 30*24*3600*1000;
+    const wk = h.filter(x => x.d >= weekAgo).length;
+    const mo = h.filter(x => x.d >= monthAgo).length;
+    const totalMin = Math.round(h.reduce((a,x)=>a+(x.total||0),0)/60);
+    const last = h[0] ? new Date(h[0].d) : null;
+    const days = last ? Math.floor((now - last)/86400000) : null;
+    st.innerHTML = `
+      <div>本周 <b>${wk}</b> 次 ｜ 近 30 天 <b>${mo}</b> 次</div>
+      <div>累计 <b>${h.length}</b> 次 · 共 <b>${totalMin}</b> 分钟</div>
+      <div>${days === null ? '' : (days === 0 ? '今天已经练过 ✅' : `距上次训练 <b>${days}</b> 天`)}</div>`;
+  }
+}
+
 function bindDrawer(){
   const d = $('dbody');
   d.querySelectorAll('[data-inc]').forEach(b => b.onclick = () => bump(b.dataset.inc, 1));
@@ -738,6 +784,7 @@ function bindDrawer(){
     if(k === 'music'){
       if(cfg.music){ musicStart(); }
       else { musicStop(); }
+      syncMusicUI();
     }
     if(k === 'voice' && cfg.voice){ speak('语音已开启', 1.1); }
   });
@@ -757,6 +804,8 @@ function bindDrawer(){
   if(vr) vr.oninput = () => {
     musicSetVolume(vr.value / 100);
     const v = $('volVal'); if(v) v.textContent = vr.value + '%';
+    const q = $('volQuick'); if(q) q.value = vr.value;
+    const qt = $('volQuickVal'); if(qt) qt.textContent = vr.value + '%';
   };
   // 选文件
   const mf = $('musicFile');
@@ -774,8 +823,8 @@ function bindDrawer(){
     await idbPut('music', null);
     renderDrawer();
   };
-  $('btnApply').onclick = closeDrawer;
-  $('btnClearHist').onclick = () => { localStorage.removeItem(HKEY); renderHist(); };
+  $('btnApply').onclick = () => switchTab('timer');
+  $('btnClearHist').onclick = () => { localStorage.removeItem(HKEY); renderHist(); renderHistFull(); };
 }
 function bump(key, dir){
   const [mn, mx, step] = LIMITS[key];
@@ -797,20 +846,59 @@ function renderPreset(){
   $('preset').innerHTML = Object.entries(PRESETS)
     .map(([k,p]) => `<option value="${k}" ${cfg.preset===k?'selected':''}>${p.name}</option>`).join('');
 }
-function openDrawer(){ $('mask').classList.add('on'); $('drawer').classList.add('on'); renderDrawer(); }
-function closeDrawer(){
-  $('mask').classList.remove('on'); $('drawer').classList.remove('on');
-  renderPreset(); paintInfo(); paintStage();
+/* ── 主界面音乐条 ── */
+function syncMusicUI(){
+  const b = $('btnMusic'); if(!b) return;
+  b.classList.toggle('on', !!cfg.music);
+  const v = $('volQuick');
+  if(v) v.value = Math.round(cfg.musicVol * 100);
+  const t = $('volQuickVal');
+  if(t) t.textContent = Math.round(cfg.musicVol * 100) + '%';
+}
+function bindMusicBar(){
+  const b = $('btnMusic');
+  if(!b) return;
+  b.onclick = () => {
+    if(!cfg.musicName){ switchTab('set'); return; }   // 还没选文件 → 去设置
+    cfg.music = !cfg.music;
+    saveCfg(); syncMusicUI();
+    if(cfg.music){ musicStart(); } else { musicStop(); }
+    if(document.getElementById('dbody').innerHTML) renderDrawer();
+  };
+  const v = $('volQuick');
+  if(v) v.oninput = () => {
+    musicSetVolume(v.value / 100);
+    const t = $('volQuickVal'); if(t) t.textContent = v.value + '%';
+    const dr = $('volRange'); if(dr) dr.value = v.value;
+    const dv = $('volVal'); if(dv) dv.textContent = v.value + '%';
+  };
 }
 
-/* ── 启动 ── */
-loadCfg();
-restoreMusic();
-renderPreset(); paintInfo(); buildTimeline(); remain = TL[0] ? TL[0].dur : 0; paintStage();
+let curTab = 'timer';
+function switchTab(t){
+  curTab = t;
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + t));
+  document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  if(t === 'set') renderDrawer();
+  if(t === 'log') renderHistFull();
+  if(t === 'timer'){ paintStage(); paintInfo(); }
+}
+function closeDrawer(){ switchTab('timer'); }
 
-$('btnCfg').onclick = openDrawer;
-$('btnClose').onclick = closeDrawer;
-$('mask').onclick = closeDrawer;
+/* ══════════ 启动 ══════════ */
+loadCfg();
+renderPreset();
+paintInfo();
+buildTimeline();
+remain = TL[0] ? TL[0].dur : 0;
+paintStage();
+restoreMusic();
+
+document.querySelectorAll('.tabbar button').forEach(btn => {
+  btn.onclick = () => switchTab(btn.dataset.tab);
+});
+bindMusicBar();
+syncMusicUI();
 $('btnPlay').onclick = function(){
   const seg = TL[idx];
   if(running && !paused && seg && seg.open){ skip(); return; }
