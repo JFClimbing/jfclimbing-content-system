@@ -103,6 +103,7 @@ function speak(text, rate, interrupt){
     if(interrupt && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN'; u.volume = 1; u.rate = rate || 1.2; u.pitch = 1;
+    u.onend = () => { resumeLoop(0); };
     speechSynthesis.speak(u);
   }catch(e){}
 }
@@ -111,22 +112,62 @@ function speak(text, rate, interrupt){
 const music = () => $('bgm');
 let expectPlaying = false;
 
+
+/* iOS 在系统打断后，普通 play() 会被自动播放策略拒绝。
+   先静音播放（静音允许自动播放），成功后再解除静音 —— 这是通行解法。 */
+function tryPlay(m){
+  const p = m.play();
+  if(!p || !p.then) return Promise.resolve(true);
+  return p.then(() => true).catch(() => {
+    try{ m.muted = true; }catch(e){}
+    const p2 = m.play();
+    if(!p2 || !p2.then) return Promise.resolve(false);
+    return p2.then(() => { try{ m.muted = false; }catch(e){} return true; })
+             .catch(() => { try{ m.muted = false; }catch(e){} return false; });
+  });
+}
+
+let resumeTimer = null;
 function musicPlay(){
   const m = music(); if(!m || !m.src) return;
   expectPlaying = true;
   m.loop = true;
-  const p = m.play();
-  if(p && p.catch) p.catch(()=>{});
+  tryPlay(m);
+}
+
+/* ⭐ 关键：TTS 说话期间 play() 一定失败，必须一直重试到音频会话释放 */
+function resumeLoop(tries){
+  tries = tries || 0;
+  clearTimeout(resumeTimer);
+  if(!cfg.music || !running || paused || !expectPlaying) return;
+  const m = music();
+  if(!m || !m.src) return;
+  if(!m.paused){ return; }                 // 已经在播了
+  tryPlay(m).then(ok => {
+    if(!ok && tries < 25) resumeTimer = setTimeout(() => resumeLoop(tries + 1), 400);
+  });
 }
 function musicPause(){
   expectPlaying = false;
   const m = music(); if(m){ try{ m.pause(); }catch(e){} }
 }
 /* TTS 打断后系统会把 audio 暂停 —— 这里自动接回来 */
+let lastCT = -1, stuckCount = 0;
 function musicHeal(){
-  if(!cfg.music || !running || paused) return;
+  if(!cfg.music || !running || paused || !expectPlaying) return;
   const m = music();
-  if(m && m.src && m.paused) musicPlay();
+  if(!m || !m.src) return;
+  if(m.paused){ resumeLoop(0); return; }
+  // 有些机型元素没暂停但音频流被杀 —— 用 currentTime 是否前进判断
+  if(Math.abs(m.currentTime - lastCT) < 0.01){
+    stuckCount++;
+    if(stuckCount > 10){            // 约 2 秒没动
+      stuckCount = 0;
+      try{ m.load(); }catch(e){}
+      musicPlay();
+    }
+  } else { stuckCount = 0; }
+  lastCT = m.currentTime;
 }
 
 /* 音乐文件存储 */
@@ -178,6 +219,8 @@ async function addTracks(files){
     cfg.tracks.push({ id, name:(f.name || '未命名').replace(/\.[^.]+$/, '') });
     if(!cfg.trackId) await selectTrack(id);
   }
+  if(!cfg.tracks.some(t => t.id === cfg.trackId) && cfg.tracks.length) await selectTrack(cfg.tracks[0].id);
+  cfg.music = true;
   save(); renderMusic(); syncPlayer();
 }
 async function delTrack(id){
@@ -453,7 +496,7 @@ function releaseWake(){ try{ if(wl) wl.release(); }catch(e){} wl = null; }
 document.addEventListener('visibilitychange', () => {
   if(document.visibilityState === 'visible'){
     if(running && cfg.wake) requestWake();
-    if(running && !paused) tick();
+    if(running && !paused){ tick(); resumeLoop(0); }
   }
 });
 
@@ -726,7 +769,7 @@ function cycleTrack(dir){
 
 $('bgm').addEventListener('pause', () => {
   if(expectPlaying && cfg.music && running && !paused){
-    setTimeout(() => { if(cfg.music && running && !paused && $('bgm').paused) musicPlay(); }, 260);
+    resumeLoop(0);
   }
 });
 
