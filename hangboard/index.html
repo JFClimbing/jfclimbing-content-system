@@ -159,6 +159,35 @@ body{
 .histrow .h2{font-size:12.5px;color:var(--muted);margin-top:4px}
 .empty{color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
 .done .cd{color:var(--green)!important}
+#ringFg{transition:stroke-dashoffset .25s linear}
+.mnext{
+  width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);
+  color:var(--muted);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;
+}
+.mnext:active{background:var(--card2)}
+.cell.tap{cursor:pointer;position:relative}
+.cell.tap:active{background:var(--card)}
+.cell.tap::after{content:"›";position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--line);font-size:18px;font-weight:700}
+.sheetmask{position:fixed;inset:0;background:rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:opacity .2s;z-index:80}
+.sheetmask.on{opacity:1;pointer-events:auto}
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;background:var(--card);border-radius:18px 18px 0 0;
+  transform:translateY(101%);transition:transform .26s cubic-bezier(.32,.72,0,1);z-index:81;
+  max-width:560px;margin:0 auto;padding-bottom:calc(16px + env(safe-area-inset-bottom));display:none;
+}
+.sheet.on{transform:translateY(0);display:block}
+.sh-head{display:flex;align-items:center;padding:14px 18px 8px}
+.sh-head span{flex:1;font-size:16px;font-weight:800}
+.sh-body{padding:4px 18px 0;max-height:60vh;overflow-y:auto}
+.qrow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.qrow:last-child{border-bottom:none}
+.qrow .ql{flex:1;font-size:15px;font-weight:600}
+.qrow .ql small{display:block;color:var(--muted);font-size:12px;margin-top:2px;font-weight:400}
+.bigstep{display:flex;align-items:center;background:var(--card2);border-radius:12px;border:1px solid var(--line);overflow:hidden;flex:none}
+.bigstep button{width:44px;height:44px;border:none;background:transparent;color:var(--txt);font-size:22px;font-weight:700;cursor:pointer}
+.bigstep button:active{background:var(--line)}
+.bigstep .bv{min-width:72px;text-align:center;font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
+.bigstep .bv small{font-size:11px;color:var(--muted);margin-left:1px}
 .nowcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
 .nowcard .nw-name{font-size:16px;font-weight:800;margin-bottom:12px;word-break:break-all}
 .nowcard .nw-row{display:flex;align-items:center;gap:12px}
@@ -196,16 +225,19 @@ body{
       </div>
 
       <div class="grid">
-        <div class="cell"><div class="k">动作列表</div><div class="v sm" id="gEx">—</div></div>
-        <div class="cell"><div class="k">组间休息</div><div class="v g" id="gSetRest">02:00</div></div>
-        <div class="cell"><div class="k">循环次数</div><div class="v g" id="gReps">—</div></div>
-        <div class="cell"><div class="k">总训练时间</div><div class="v o" id="gTotal">00:00</div></div>
-        <div class="cell"><div class="k">开始热身</div><div class="v" id="gWarm">00:00</div></div>
-        <div class="cell"><div class="k">结尾放松</div><div class="v" id="gCool">00:00</div></div>
+        <div class="cell" data-qk="ex"><div class="k">动作列表</div><div class="v sm" id="gEx">—</div></div>
+        <div class="cell" data-qk="setRest"><div class="k">组间休息</div><div class="v g" id="gSetRest">02:00</div></div>
+        <div class="cell" data-qk="reps"><div class="k">循环次数</div><div class="v g" id="gReps">—</div></div>
+        <div class="cell" data-qk="total"><div class="k">总训练时间</div><div class="v o" id="gTotal">00:00</div></div>
+        <div class="cell" data-qk="warm"><div class="k">开始热身</div><div class="v" id="gWarm">00:00</div></div>
+        <div class="cell" data-qk="cool"><div class="k">结尾放松</div><div class="v" id="gCool">00:00</div></div>
       </div>
 
       <div class="musicbar">
         <button class="mbtn" id="btnMusic" aria-label="音乐"><span class="mico">♪</span><span id="musicLabel">选音乐</span></button>
+        <button class="mnext" id="btnNextTrack" aria-label="下一首">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5l9 7-9 7V5z"/><rect x="16.5" y="5" width="2.6" height="14" rx="1"/></svg>
+        </button>
         <input type="range" id="volQuick" min="0" max="100" value="35">
         <span class="pct" id="volQuickVal">35%</span>
       </div>
@@ -267,7 +299,18 @@ body{
   </nav>
 </div>
 
+<div class="sheetmask" id="sheetMask"></div>
+<div class="sheet" id="sheet">
+  <div class="sh-head">
+    <span id="shTitle">快速修改</span>
+    <button class="iconbtn" id="shClose">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="sh-body" id="shBody"></div>
+</div>
+
 <video id="bgm" loop playsinline preload="auto" style="position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px"></video>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>
