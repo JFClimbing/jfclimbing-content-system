@@ -123,11 +123,11 @@ function triple(){ [0,140,280].forEach((d,i)=>setTimeout(()=>beep(660+i*220,0.11
 function buzz(p){ if(cfg.vibrate && navigator.vibrate) try{ navigator.vibrate(p); }catch(e){} }
 
 /* ── 语音播报（倒数 / 阶段提示） ── */
-function speak(text, rate){
+function speak(text, rate, opts){
   if(!cfg.voice) return;
   if(!('speechSynthesis' in window)) return;
   try{
-    if(speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+    if(opts && opts.interrupt && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN';
     u.volume = 1;            // 系统音量上限
@@ -136,9 +136,12 @@ function speak(text, rate){
     u.onend = () => {
       clearTimeout(duckTimer); duckTimer = null;
       applyVol(cfg.musicVol, 0.35);
-      resumeAudio();                 // ⭐ 播报结束后把音频上下文救回来
+      musicSrcNode = null;            // 被打断后音源已死，强制重建
+      setTimeout(() => ensureMusicPlaying(0), 60);
+      setTimeout(() => ensureMusicPlaying(0), 500);
+      setTimeout(() => ensureMusicPlaying(0), 1400);
     };
-    u.onerror = () => { resumeAudio(); };
+    u.onerror = () => { setTimeout(() => ensureMusicPlaying(0), 100); };
     speechSynthesis.speak(u);
     duck(2500);              // 说话时压住音乐（有 onend 兜底）
   }catch(e){}
@@ -188,6 +191,8 @@ function gainNode(){
   return musicGain;
 }
 function applyVol(v, ramp){
+  const c0 = ac();
+  if(c0 && !musicGain){ try{ gainNode(); }catch(e){} }
   if(musicGain){
     const ctx = ac();
     if(ctx){
@@ -203,6 +208,63 @@ function applyVol(v, ramp){
   const m = bgm();
   if(m && !musicBuf) { try{ m.volume = v; }catch(e){} }   // 兜底路径（iOS 无效，其他平台有效）
 }
+/* 淡出后再停 */
+function musicFadeOut(ms){
+  if(musicGain){ applyVol(0.0001, ms/1000); }
+  setTimeout(() => {
+    try{ if(musicSrcNode){ musicSrcNode.stop(); musicSrcNode.disconnect(); musicSrcNode = null; } }catch(e){}
+    const m = bgm(); if(m) try{ m.pause(); }catch(e){}
+  }, ms);
+}
+function startSourceNode(){
+  const c = ac(); if(!c || !musicBuf) return false;
+  try{
+    if(musicSrcNode){ try{ musicSrcNode.stop(); }catch(e){} try{ musicSrcNode.disconnect(); }catch(e){} }
+    const g = gainNode();
+    g.gain.cancelScheduledValues(0);
+    g.gain.setValueAtTime(Math.max(0.0001, cfg.musicVol), c.currentTime);
+    const src = c.createBufferSource();
+    src.buffer = musicBuf;
+    src.loop = true;
+    src.connect(g);
+    g.connect(c.destination);
+    src.start();
+    musicSrcNode = src;
+    return true;
+  }catch(e){ musicSrcNode = null; return false; }
+}
+
+/* ⭐ iOS 上语音会打断 AudioContext（状态可能是 interrupted），一次 resume 不够，
+   必须重试，并且音源停了要重建。 */
+function ensureMusicPlaying(attempt){
+  attempt = attempt || 0;
+  if(!cfg.music || !running || paused) return;
+  const c = ac(); if(!c) return;
+
+  if(c.state !== 'running'){
+    try{ c.resume(); }catch(e){}
+    if(attempt < 16) setTimeout(() => ensureMusicPlaying(attempt + 1), 220);
+    return;
+  }
+
+  if(musicBuf){
+    if(!musicSrcNode) startSourceNode();
+  } else {
+    const m = bgm();
+    if(m && m.src && m.paused){
+      const pr = m.play(); if(pr && pr.catch) pr.catch(()=>{});
+      if(m.volume !== undefined){ try{ m.volume = cfg.musicVol; }catch(e){} }
+    }
+  }
+}
+
+function musicStart(){
+  if(!cfg.music) return;
+  const c = ac(); if(!c) return;
+  if(c.state !== 'running'){ try{ c.resume(); }catch(e){} }
+  ensureMusicPlaying(0);
+}
+
 /* 淡出后再停 */
 function musicFadeOut(ms){
   if(musicGain){ applyVol(0.0001, ms/1000); }
@@ -712,8 +774,13 @@ function updatePlayBtn(){
 /* ── 计时（绝对时间戳驱动，后台/锁屏也不跑偏） ── */
 function tick(){
   if(!running || paused) return;
-  // ⭐ 兜底：被语音/来电打断后，自动把音频上下文救回来
-  if(AC && AC.state !== 'running' && cfg.music){ try{ AC.resume(); }catch(e){} }
+  // ⭐ 看门狗：上下文被打断 / 音源已死 → 立刻修复
+  if(cfg.music && !paused){
+    const c = AC;
+    if(c && (c.state !== 'running' || (musicBuf && !musicSrcNode))){
+      ensureMusicPlaying(0);
+    }
+  }
   const now = performance.now();
   const seg0 = TL[idx];
 
@@ -734,7 +801,7 @@ function tick(){
     if(seg.dur >= 6 && r > 0 && r <= 3 && r !== seg._lastBeep){
       seg._lastBeep = r;
       buzz(20);
-      if(cfg.voice){ speak(String(r), 1.7); }
+      if(cfg.voice){ speak(String(r), 1.7, {interrupt:false}); }
       else { beep(520, 0.09, 0.34); }
     }
   }
@@ -767,7 +834,7 @@ function next(){
   else if(type === 'cool' || type === 'done'){ beep(660,0.14,0.30); }
   else { beep(700,0.08,0.22); }
 
-  if(cfg.voice && say){ setTimeout(() => speak(say), 180); }
+  if(cfg.voice && say){ setTimeout(() => speak(say, 1.15, {interrupt:true}), 180); }
   paintStage();
 }
 function finish(){
@@ -1156,7 +1223,7 @@ const QDEFS = {
 };
 
 function openQuick(key){
-  if(key === 'ex'){ switchTab('set'); return; }
+  if(key === 'ex'){ openExSheet(); return; }
   const def = QDEFS[key]; if(!def) return;
   $('shTitle').textContent = def.title;
   $('shBody').innerHTML = def.fields.map(([k, lab, unit, mn, mx, st]) => `
@@ -1172,6 +1239,94 @@ function openQuick(key){
   $('sheet').classList.add('on');
   bindQuick();
 }
+function openExSheet(){
+  $('shTitle').textContent = '训练内容';
+  if(cfg.mode === 'reps' && cfg.program && cfg.program.length){
+    $('shBody').innerHTML = cfg.program.map((it, ix) => {
+      const pk = (cfg.pick && cfg.pick[ix] != null) ? cfg.pick[ix] : 0;
+      const cur = (it.alts && it.alts[pk]) ? it.alts[pk] : it;
+      const sel = it.alts ? `<select class="palts" data-pk="${ix}">${
+        it.alts.map((a,i)=>`<option value="${i}" ${i===pk?'selected':''}>${a.name}</option>`).join('')
+      }</select>` : '';
+      return `<div class="qitem">
+        <div class="qitop">
+          <span class="qno">${ix+1}</span>
+          <span class="qname">${cur.name}</span>
+          <span class="qtgt">${cur.target}</span>
+        </div>
+        ${sel}
+        <div class="qmini">
+          <span class="qml">组数</span>
+          <div class="bigstep sm">
+            <button data-ps="${ix}" data-d="-1">−</button>
+            <div class="bv" id="qs_${ix}">${it.sets}<small>组</small></div>
+            <button data-ps="${ix}" data-d="1">+</button>
+          </div>
+          <span class="qml">休息</span>
+          <div class="bigstep sm">
+            <button data-pr="${ix}" data-d="-1">−</button>
+            <div class="bv" id="qr_${ix}">${it.rest}<small>秒</small></div>
+            <button data-pr="${ix}" data-d="1">+</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    bindExSheet();
+  } else {
+    $('shBody').innerHTML = `
+      <div class="qrow"><div class="ql">动作列表<small>每次悬挂按顺序轮换</small></div></div>
+      <div class="exlist" id="exedit">
+        ${(cfg.exercises||['']).map((e,i)=>`<div class="exitem">
+          <input value="${(e||'').replace(/"/g,'&quot;')}" data-exi="${i}" placeholder="动作名">
+          <span class="del" data-exd="${i}">✕</span>
+        </div>`).join('')}
+      </div>
+      <button class="btn ghost" id="exAdd" style="margin-top:10px">＋ 添加动作</button>`;
+    bindTimeEx();
+  }
+  $('sheetMask').classList.add('on');
+  $('sheet').classList.add('on');
+}
+
+function bindExSheet(){
+  const body = $('shBody');
+  body.querySelectorAll('[data-pk]').forEach(sel => sel.onchange = () => {
+    const ix = +sel.dataset.pk;
+    if(!cfg.pick) cfg.pick = [];
+    cfg.pick[ix] = +sel.value;
+    saveCfg();
+    if(!running) reset(); else buildTimeline();
+    paintInfo(); paintStage();
+    openExSheet();
+  });
+  body.querySelectorAll('[data-ps]').forEach(b => b.onclick = () => {
+    const ix = +b.dataset.ps;
+    cfg.program[ix].sets = Math.max(1, Math.min(12, cfg.program[ix].sets + (+b.dataset.d)));
+    saveCfg(); if(!running) reset(); else buildTimeline(); paintInfo(); paintStage();
+    const el = $('qs_' + ix); if(el) el.innerHTML = cfg.program[ix].sets + '<small>组</small>';
+  });
+  body.querySelectorAll('[data-pr]').forEach(b => b.onclick = () => {
+    const ix = +b.dataset.pr;
+    cfg.program[ix].rest = Math.max(10, Math.min(600, cfg.program[ix].rest + (+b.dataset.d) * 10));
+    saveCfg(); if(!running) reset(); else buildTimeline(); paintInfo(); paintStage();
+    const el = $('qr_' + ix); if(el) el.innerHTML = cfg.program[ix].rest + '<small>秒</small>';
+  });
+}
+
+function bindTimeEx(){
+  const body = $('shBody');
+  body.querySelectorAll('[data-exi]').forEach(inp => inp.oninput = () => {
+    cfg.exercises[+inp.dataset.exi] = inp.value; saveCfg(); paintInfo();
+  });
+  body.querySelectorAll('[data-exd]').forEach(b => b.onclick = () => {
+    cfg.exercises.splice(+b.dataset.exd, 1);
+    if(!cfg.exercises.length) cfg.exercises = [''];
+    saveCfg(); openExSheet(); paintInfo();
+  });
+  const add = $('exAdd');
+  if(add) add.onclick = () => { cfg.exercises.push('新动作'); saveCfg(); openExSheet(); paintInfo(); };
+}
+
 function closeQuick(){
   $('sheetMask').classList.remove('on');
   $('sheet').classList.remove('on');
@@ -1266,3 +1421,18 @@ document.addEventListener('keydown', e => {
   if(e.code === 'ArrowRight'){ skip(); }
 });
 document.addEventListener('gesturestart', e => e.preventDefault());
+
+/* ⭐ 最后一道保险：用户一碰屏幕，就把音频救回来（iOS 只允许手势内 resume） */
+function pokeAudio(){
+  if(!cfg.music || !running || paused) return;
+  const c = ac(); if(!c) return;
+  if(c.state !== 'running'){
+    try{ c.resume(); }catch(e){}
+    setTimeout(() => { musicSrcNode = null; ensureMusicPlaying(0); }, 120);
+  } else if(musicBuf && !musicSrcNode){
+    ensureMusicPlaying(0);
+  }
+}
+['touchstart','pointerdown','click'].forEach(ev =>
+  document.addEventListener(ev, pokeAudio, {passive:true})
+);
