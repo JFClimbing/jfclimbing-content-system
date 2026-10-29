@@ -246,7 +246,7 @@ function musicSetVolume(v){
 /* 播报/提示音时把音乐压到 15%，随后恢复 */
 function duck(ms){
   if(!cfg.music) return;
-  applyVol(Math.max(0.01, cfg.musicVol * 0.18), 0.10);   // 快速压低（0.1s）
+  applyVol(Math.max(0.01, cfg.musicVol * 0.5), 0.12);   // 播报时降到一半
   clearTimeout(duckTimer);
   duckTimer = setTimeout(() => {
     duckTimer = null;
@@ -617,64 +617,84 @@ function paintInfo(){
   $('gCool').textContent = fmt(cfg.cool);
 }
 
+const COLORS = { '--orange':'#ff9f0a', '--green':'#30d158', '--blue':'#0a84ff' };
+function setText(el, v){ if(el && el.textContent !== v) el.textContent = v; }
+function setHTML(el, v){ if(el && el._h !== v){ el.innerHTML = v; el._h = v; } }
+
 function paintStage(){
   const idle = (!running && !finished && idx === 0);
   if(idle){
     const stage0 = $('stage');
     stage0.classList.remove('done');
-    $('phase').textContent = '准备开始';
-    $('cd').textContent = fmt(totalSec());
-    $('cd').classList.add('small');
-    $('cd').style.color = '';
-    $('ringFg').setAttribute('stroke', '#30d158');
-    $('ringFg').setAttribute('stroke-dasharray', 289);
-    $('ringFg').setAttribute('stroke-dashoffset', 289);
+    setText($('phase'), '准备开始');
+    const cd0 = $('cd');
+    setText(cd0, fmt(totalSec()));
+    if(!cd0.classList.contains('small')) cd0.classList.add('small');
+    if(cd0.style.color) cd0.style.color = '';
+    const rf = $('ringFg');
+    if(rf.getAttribute('stroke') !== '#30d158') rf.setAttribute('stroke', '#30d158');
+    rf.setAttribute('stroke-dasharray', 289);
+    rf.setAttribute('stroke-dashoffset', 289);
     if(cfg.mode === 'reps' && cfg.program){
       const totalSets = cfg.program.reduce((a,x)=>a+x.sets,0);
-      $('sub').innerHTML = `<b>${cfg.program.length}</b> 个动作 · 共 <b>${totalSets}</b> 组`;
+      setHTML($('sub'), `<b>${cfg.program.length}</b> 个动作 · 共 <b>${totalSets}</b> 组`);
     } else {
-      $('sub').innerHTML = `共 <b>${cfg.sets}</b> 组 × <b>${cfg.reps}</b> 次 · 每次 <b>${cfg.work}</b> 秒`;
+      setHTML($('sub'), `共 <b>${cfg.sets}</b> 组 × <b>${cfg.reps}</b> 次 · 每次 <b>${cfg.work}</b> 秒`);
     }
     return;
   }
 
   const seg = TL[idx], stage = $('stage');
   stage.classList.toggle('done', !!seg && seg.type === 'done');
-  if(!seg){ $('phase').textContent = '准备开始'; $('cd').textContent = fmt(0); $('sub').textContent = ''; return; }
+  if(!seg){ setText($('phase'),'准备开始'); setText($('cd'), fmt(0)); setHTML($('sub'),''); return; }
 
-  const col = getComputedStyle(document.documentElement).getPropertyValue(seg.color || '--orange').trim();
-  $('phase').textContent = seg.label;
   const isOpen = !!seg.open;
-  $('cd').textContent = isOpen ? fmt(openElapsed) : fmt(seg.type === 'done' ? 0 : remain);
-  $('cd').classList.toggle('small', !isOpen && (seg.type==='setrest' || seg.type==='warm' || seg.type==='cool'));
-  $('cd').style.color = col || '#ff9f0a';
-  $('ringFg').setAttribute('stroke', col || '#ff9f0a');
 
-  // 进度环：计次段用「已用时间 / 20 秒」做一个柔和的示意
+  // 阶段名：只在换段时写
+  if(seg._label !== seg.label){ seg._label = seg.label; setText($('phase'), seg.label); }
+
+  // 颜色：只在换段时写
+  if(seg._col !== seg.color){
+    seg._col = seg.color;
+    const hex = COLORS[seg.color] || '#ff9f0a';
+    const cdEl = $('cd');
+    cdEl.style.color = hex;
+    $('ringFg').setAttribute('stroke', hex);
+  }
+
+  // 数字：变了才写
+  const txt = isOpen ? fmt(openElapsed) : fmt(seg.type === 'done' ? 0 : remain);
+  setText($('cd'), txt);
+
+  const small = !isOpen && (seg.type==='setrest' || seg.type==='warm' || seg.type==='cool');
+  const cdEl = $('cd');
+  if(cdEl.classList.contains('small') !== small) cdEl.classList.toggle('small', small);
+
+  // 进度环：只改 offset（CSS 有 transition，看起来平滑）
   const C = 2 * Math.PI * 46;
   let pct = 0;
   if(isOpen){ pct = Math.min(1, openElapsed / 20); }
   else if(seg.dur){ pct = Math.max(0, (seg.dur - remain) / seg.dur); }
-  $('ringFg').setAttribute('stroke-dasharray', C);
-  $('ringFg').setAttribute('stroke-dashoffset', C * (1 - pct));
+  $('ringFg').setAttribute('stroke-dashoffset', (C * (1 - pct)).toFixed(1));
 
-  let sub = '';
-  if(seg.type === 'work'){
-    if(isOpen){
-      sub = `第 <b>${seg.set}</b>/${seg.sets} 组 · 目标 <b>${seg.target || '—'}</b>`;
-    } else {
-      sub = `第 <b>${seg.set}</b>/${seg.sets} 组` + (seg.target ? ` · <b>${seg.target}</b>` : '');
+  // 副标题：只在换段时写
+  const key = seg.type + '|' + (seg.set||'') + '|' + (seg.rep||'') + '|' + (seg.target||'') + '|' + (seg.next||'');
+  if(seg._subKey !== key){
+    seg._subKey = key;
+    let sub = '';
+    if(seg.type === 'work'){
+      sub = isOpen
+        ? `第 <b>${seg.set}</b>/${seg.sets} 组 · 目标 <b>${seg.target || '—'}</b>`
+        : `第 <b>${seg.set}</b>/${seg.sets} 组` + (seg.target ? ` · <b>${seg.target}</b>` : '');
     }
+    else if(seg.type === 'rest') sub = seg.next ? `休息 ${mins(seg.dur)} · 下一个：<b>${seg.next}</b>` : `休息 ${mins(seg.dur)}`;
+    else if(seg.type === 'setrest') sub = `下一组：第 <b>${seg.nextSet}</b>/${cfg.sets} 组`;
+    else if(seg.type === 'warm') sub = '热身 · 手指、肩、腕';
+    else if(seg.type === 'cool') sub = '放松 · 拉伸前臂';
+    else if(seg.type === 'prep') sub = '准备开始';
+    else if(seg.type === 'done') sub = '训练完成';
+    setHTML($('sub'), sub);
   }
-  else if(seg.type === 'rest'){
-    sub = seg.next ? `休息 ${mins(seg.dur)} · 下一个：<b>${seg.next}</b>` : `休息 ${mins(seg.dur)}`;
-  }
-  else if(seg.type === 'setrest') sub = `下一组：第 <b>${seg.nextSet}</b>/${cfg.sets} 组`;
-  else if(seg.type === 'warm') sub = '热身 · 手指、肩、腕';
-  else if(seg.type === 'cool') sub = '放松 · 拉伸前臂';
-  else if(seg.type === 'prep') sub = '准备开始';
-  else if(seg.type === 'done') sub = '训练完成';
-  $('sub').innerHTML = sub;
 
   updatePlayBtn();
 }
@@ -714,7 +734,7 @@ function tick(){
     if(seg.dur >= 6 && r > 0 && r <= 3 && r !== seg._lastBeep){
       seg._lastBeep = r;
       buzz(20);
-      if(cfg.voice){ speak(String(r), 1.45); }
+      if(cfg.voice){ speak(String(r), 1.7); }
       else { beep(520, 0.09, 0.34); }
     }
   }
@@ -738,18 +758,16 @@ function next(){
   enterSegment();
   const type = TL[idx].type;
   const say = phaseSpeech(TL[idx]);
-  if(type === 'work') buzz([40,60,40]);
-  else if(type === 'rest' || type === 'setrest') buzz(120);
+  if(type === 'work'){ buzz([40,60,40]); }
+  else if(type === 'rest' || type === 'setrest'){ buzz(120); }
 
-  // ⭐ 语音和提示音二选一，不同时响，避免叠在一起
-  if(cfg.voice && say){
-    speak(say);
-  } else {
-    if(type === 'work') triple();
-    else if(type === 'rest' || type === 'setrest') beep(440,0.16,0.3);
-    else if(type === 'cool' || type === 'done') beep(660,0.2,0.3);
-    else beep(600,0.1,0.2);
-  }
+  // ⭐ 准点先给一声短提示（不拖时间），语音延后 180ms 再说，衔接才不糊
+  if(type === 'work'){ beep(880,0.07,0.30); beep(1320,0.07,0.26); }
+  else if(type === 'rest' || type === 'setrest'){ beep(520,0.10,0.28); }
+  else if(type === 'cool' || type === 'done'){ beep(660,0.14,0.30); }
+  else { beep(700,0.08,0.22); }
+
+  if(cfg.voice && say){ setTimeout(() => speak(say), 180); }
   paintStage();
 }
 function finish(){
@@ -1127,6 +1145,58 @@ function bindMusicBar(){
   };
 }
 
+/* ══════════ 主界面快捷修改 ══════════ */
+const QDEFS = {
+  ex:      { title:'动作列表', fields:[] },          // 特殊：跳设置
+  setRest: { title:'组间休息', fields:[['setRest','两组之间','秒',10,600,10]] },
+  reps:    { title:'组数 / 循环次数', fields:[['sets','组数','组',1,12,1],['reps','每组次数','次',1,20,1]] },
+  total:   { title:'单次悬挂 / 间隔休息', fields:[['work','单次悬挂','秒',1,60,1],['rest','间隔休息','秒',1,120,1]] },
+  warm:    { title:'开始热身', fields:[['warm','手指/肩/腕预热','秒',0,900,30]] },
+  cool:    { title:'结尾放松', fields:[['cool','拉伸前臂','秒',0,900,30]] }
+};
+
+function openQuick(key){
+  if(key === 'ex'){ switchTab('set'); return; }
+  const def = QDEFS[key]; if(!def) return;
+  $('shTitle').textContent = def.title;
+  $('shBody').innerHTML = def.fields.map(([k, lab, unit, mn, mx, st]) => `
+    <div class="qrow">
+      <div class="ql">${lab}<small>${mn}–${mx} ${unit}</small></div>
+      <div class="bigstep">
+        <button data-q="${k}" data-d="-1">−</button>
+        <div class="bv" id="qv_${k}">${TIMEK.includes(k) ? timeLabel(cfg[k]).t : cfg[k]}<small>${TIMEK.includes(k) ? timeLabel(cfg[k]).u : unit}</small></div>
+        <button data-q="${k}" data-d="1">+</button>
+      </div>
+    </div>`).join('') + `<button class="btn pri" id="qDone" style="margin:16px 0 8px">完成</button>`;
+  $('sheetMask').classList.add('on');
+  $('sheet').classList.add('on');
+  bindQuick();
+}
+function closeQuick(){
+  $('sheetMask').classList.remove('on');
+  $('sheet').classList.remove('on');
+}
+function bindQuick(){
+  const body = $('shBody');
+  body.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
+    const k = b.dataset.q, d = +b.dataset.d;
+    const f = Object.values(QDEFS).flatMap(x=>x.fields).find(f => f[0] === k);
+    if(!f) return;
+    const [, , unit, mn, mx, st] = f;
+    cfg[k] = Math.min(mx, Math.max(mn, cfg[k] + d*st));
+    if(cfg.preset !== 'custom'){ cfg.preset = 'custom'; cfg.name = '自定义'; renderPreset(); }
+    const el = $('qv_' + k);
+    if(el){
+      const tl = TIMEK.includes(k) ? timeLabel(cfg[k]) : { t: String(cfg[k]), u: unit };
+      el.innerHTML = tl.t + `<small>${tl.u}</small>`;
+    }
+    saveCfg();
+    if(!running){ reset(); } else { buildTimeline(); }
+    paintInfo(); paintStage();
+  });
+  const done = $('qDone'); if(done) done.onclick = closeQuick;
+}
+
 let curTab = 'timer';
 function switchTab(t){
   curTab = t;
@@ -1151,6 +1221,25 @@ restoreTracks();
 document.querySelectorAll('.tabbar button').forEach(btn => {
   btn.onclick = () => switchTab(btn.dataset.tab);
 });
+document.querySelectorAll('.cell[data-qk]').forEach(c => {
+  c.classList.add('tap');
+  c.onclick = () => openQuick(c.dataset.qk);
+});
+$('sheetMask').onclick = closeQuick;
+$('shClose').onclick = closeQuick;
+
+// 下一首
+$('btnNextTrack').onclick = async () => {
+  const list = tracks();
+  if(list.length < 2){ switchTab('music'); return; }
+  const i = list.findIndex(t => t.id === cfg.trackId);
+  const nx = list[(i + 1) % list.length];
+  await selectTrack(nx.id);
+  cfg.music = true; saveCfg();
+  if(running && !paused) musicStart();
+  syncMusicUI(); renderMusicPage();
+};
+
 bindMusicBar();
 syncMusicUI();
 watchAudioState();
