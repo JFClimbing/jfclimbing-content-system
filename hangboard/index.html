@@ -112,6 +112,14 @@ body{
 .empty{color:var(--muted);font-size:13px;padding:10px 0}
 .done .cd{color:var(--green)!important}
 
+.proglist{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.progrow{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+.progrow .pi{width:20px;height:20px;border-radius:50%;background:var(--card2);color:var(--muted);font-size:11px;font-weight:800;display:grid;place-items:center;flex:none}
+.progrow .pn{font-size:14.5px;font-weight:700;flex:none}
+.progrow .pt{margin-left:auto;font-size:12px;color:var(--muted);font-weight:600;text-align:right;flex:none}
+.note{font-size:12.5px;color:var(--muted);line-height:1.6;margin-top:10px;padding:0 2px}
+
+
 .volwrap{display:flex;align-items:center;gap:10px;flex:none}
 .volwrap input[type=range]{-webkit-appearance:none;width:120px;height:4px;border-radius:2px;background:var(--line);outline:none}
 .volwrap input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--orange);cursor:pointer}
@@ -168,6 +176,6 @@ body{
 </div>
 
 <video id="bgm" loop playsinline preload="auto" style="position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px"></video>
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
