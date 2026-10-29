@@ -66,10 +66,11 @@ body{
 /* ── 主界面音乐条 ── */
 .musicbar{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);flex:none}
 .mbtn{
-  width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);
-  color:var(--muted);font-size:17px;display:grid;place-items:center;cursor:pointer;flex:none;
+  height:38px;padding:0 12px 0 10px;border-radius:10px;border:1px solid var(--line);background:var(--card);
+  color:var(--muted);font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px;cursor:pointer;flex:none;
 }
-.mbtn.on{background:rgba(255,159,10,.16);border-color:rgba(255,159,10,.5);color:var(--orange)}
+.mbtn .mico{font-size:16px;line-height:1}
+.mbtn.on{background:rgba(255,159,10,.16);border-color:rgba(255,159,10,.55);color:var(--orange)}
 .musicbar input[type=range]{
   -webkit-appearance:none;flex:1;height:4px;border-radius:2px;background:var(--line);outline:none;
 }
@@ -185,7 +186,7 @@ body{
       </div>
 
       <div class="musicbar">
-        <button class="mbtn" id="btnMusic" aria-label="音乐">♪</button>
+        <button class="mbtn" id="btnMusic" aria-label="音乐"><span class="mico">♪</span><span id="musicLabel">选音乐</span></button>
         <input type="range" id="volQuick" min="0" max="100" value="35">
         <span class="pct" id="volQuickVal">35%</span>
       </div>
@@ -239,6 +240,6 @@ body{
 </div>
 
 <video id="bgm" loop playsinline preload="auto" style="position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px"></video>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>
