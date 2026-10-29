@@ -112,7 +112,7 @@ function speak(text, rate){
   if(!cfg.voice) return;
   if(!('speechSynthesis' in window)) return;
   try{
-    speechSynthesis.cancel();
+    if(speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN';
     u.volume = 1;            // 系统音量上限
@@ -151,10 +151,29 @@ function gainNode(){
   if(!musicGain){ musicGain = ctx.createGain(); musicGain.gain.value = cfg.musicVol; }
   return musicGain;
 }
-function applyVol(v){
-  if(musicGain) musicGain.gain.value = v;
+function applyVol(v, ramp){
+  if(musicGain){
+    const ctx = ac();
+    if(ctx){
+      const t = ctx.currentTime;
+      const r = (ramp === undefined) ? 0.18 : ramp;
+      try{ musicGain.gain.cancelScheduledValues(t); }catch(e){}
+      try{ musicGain.gain.setValueAtTime(musicGain.gain.value, t); }catch(e){}
+      try{ musicGain.gain.linearRampToValueAtTime(Math.max(0.0001, v), t + r); }catch(e){ musicGain.gain.value = v; }
+    } else {
+      musicGain.gain.value = v;
+    }
+  }
   const m = bgm();
   if(m && !musicBuf) { try{ m.volume = v; }catch(e){} }   // 兜底路径（iOS 无效，其他平台有效）
+}
+/* 淡出后再停 */
+function musicFadeOut(ms){
+  if(musicGain){ applyVol(0.0001, ms/1000); }
+  setTimeout(() => {
+    try{ if(musicSrcNode){ musicSrcNode.stop(); musicSrcNode.disconnect(); musicSrcNode = null; } }catch(e){}
+    const m = bgm(); if(m) try{ m.pause(); }catch(e){}
+  }, ms);
 }
 function musicStart(){
   if(!cfg.music) return;
@@ -162,7 +181,10 @@ function musicStart(){
   if(ctx.state === 'suspended') ctx.resume();
   if(musicBuf){
     try{ if(musicSrcNode){ musicSrcNode.stop(); musicSrcNode.disconnect(); } }catch(e){}
-    const g = gainNode(); g.gain.value = cfg.musicVol;
+    const g = gainNode();
+    g.gain.cancelScheduledValues(0);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(Math.max(0.0001, cfg.musicVol), ctx.currentTime + 0.5);
     musicSrcNode = ctx.createBufferSource();
     musicSrcNode.buffer = musicBuf;
     musicSrcNode.loop = true;
@@ -175,21 +197,25 @@ function musicStart(){
     const pr = m.play(); if(pr && pr.catch) pr.catch(()=>{});
   }
 }
-function musicStop(){
+function musicStop(soft){
+  if(soft && musicSrcNode){ musicFadeOut(280); return; }
   try{ if(musicSrcNode){ musicSrcNode.stop(); musicSrcNode.disconnect(); musicSrcNode = null; } }catch(e){}
   const m = bgm(); if(m) try{ m.pause(); }catch(e){}
 }
 function musicSetVolume(v){
   cfg.musicVol = Math.max(0, Math.min(1, v));
-  applyVol(cfg.musicVol);
+  applyVol(cfg.musicVol, 0.06);
   saveCfg();
 }
 /* 播报/提示音时把音乐压到 15%，随后恢复 */
 function duck(ms){
   if(!cfg.music) return;
-  applyVol(Math.max(0.01, cfg.musicVol * 0.15));
+  applyVol(Math.max(0.01, cfg.musicVol * 0.18), 0.10);   // 快速压低（0.1s）
   clearTimeout(duckTimer);
-  duckTimer = setTimeout(() => { duckTimer = null; applyVol(cfg.musicVol); }, ms || 1200);
+  duckTimer = setTimeout(() => {
+    duckTimer = null;
+    applyVol(cfg.musicVol, 0.45);                        // 缓慢恢复（0.45s）
+  }, ms || 1200);
 }
 
 /* ── 音乐文件存取（IndexedDB，刷新后还在） ── */
@@ -487,7 +513,8 @@ function tick(){
   const seg = TL[idx];
   if(seg && seg.type !== 'done'){
     const r = Math.ceil(left);
-    if(r > 0 && r <= 3 && r !== seg._lastBeep){
+    // 太短的段落（<6 秒）不倒数，否则刚开口就 3-2-1，听起来很乱
+    if(seg.dur >= 6 && r > 0 && r <= 3 && r !== seg._lastBeep){
       seg._lastBeep = r;
       buzz(20);
       if(cfg.voice){ speak(String(r), 1.45); }
@@ -537,7 +564,7 @@ function finish(){
   buzz([100,80,100,80,200]);
   logSession();
   paintStage();
-  musicStop();
+  musicStop(true);
   releaseWake();
   if(cfg.notify && 'Notification' in window && Notification.permission === 'granted'){
     try{ new Notification('指力训练完成', { body: `共 ${cfg.sets} 组 × ${cfg.reps} 次` }); }catch(e){}
@@ -564,7 +591,7 @@ function togglePause(){
   if(!paused){
     // 暂停：先结算当前剩余
     remain = Math.max(0, (segEndAt - performance.now()) / 1000);
-    paused = true; stopTicker(); musicStop();
+    paused = true; stopTicker(); musicStop(true);
     $('btnPlay').textContent = '继续'; $('btnPlay').className = 'play pause';
     paintStage();
   } else {
@@ -849,7 +876,11 @@ function renderPreset(){
 /* ── 主界面音乐条 ── */
 function syncMusicUI(){
   const b = $('btnMusic'); if(!b) return;
+  const has = !!cfg.musicName;
   b.classList.toggle('on', !!cfg.music);
+  const lbl = $('musicLabel');
+  if(lbl) lbl.textContent = has ? (cfg.music ? '音乐 开' : '音乐 关') : '选音乐';
+  b.setAttribute('aria-label', has ? (cfg.music ? '关闭音乐' : '开启音乐') : '选择音乐文件');
   const v = $('volQuick');
   if(v) v.value = Math.round(cfg.musicVol * 100);
   const t = $('volQuickVal');
