@@ -2,31 +2,39 @@
 'use strict';
 
 const PRESETS = {
-  // ═══ 指力板 ═══
+  // ═══ 指力板（计时模式）═══
   fbo: {
-    name:'指力板 · 开握 7:50',
+    name:'指力板 · 开握 7:50', mode:'time',
     work:7, rest:50, reps:6, sets:3, setRest:120, warm:300, cool:180,
     ex:['开握悬挂']
   },
   fbh: {
-    name:'指力板 · 半抠 5:55',
+    name:'指力板 · 半抠 5:55', mode:'time',
     work:5, rest:55, reps:5, sets:3, setRest:120, warm:300, cool:180,
     ex:['半抠悬挂']
   },
   fbm: {
-    name:'指力板 · 开握+半抠轮换',
+    name:'指力板 · 开握+半抠轮换', mode:'time',
     work:7, rest:50, reps:6, sets:3, setRest:120, warm:300, cool:180,
     ex:['开握悬挂','半抠悬挂']
   },
-  // ═══ 手臂 + 背部（循环） ═══
+
+  // ═══ 手臂 + 背部（计次模式，按真实组次）═══
   arm: {
-    name:'手臂 + 背部（循环）',
-    work:45, rest:60, reps:5, sets:3, setRest:120, warm:300, cool:180,
-    ex:['引体向上','俯卧撑','澳式划船','小臂静态弯举','平板支撑']
+    name:'手臂 + 背部（计次）', mode:'reps',
+    warm:300, cool:180,
+    program:[
+      { name:'引体向上',     target:'8–12 次',            sets:3, rest:90, type:'reps' },
+      { name:'俯卧撑',       target:'12–15 次',           sets:3, rest:90, type:'reps' },
+      { name:'澳式划船',     target:'10 次',              sets:3, rest:90, type:'reps' },
+      { name:'小臂静态弯举', target:'15 次（顶峰停 2 秒）', sets:3, rest:60, type:'reps' },
+      { name:'平板支撑',     target:'30–60 秒',           sets:3, rest:60, type:'time', work:45 }
+    ]
   },
+
   // ═══ 自定义 ═══
   custom: {
-    name:'自定义',
+    name:'自定义', mode:'time',
     work:7, rest:50, reps:6, sets:3, setRest:120, warm:300, cool:180
   }
 };
@@ -35,7 +43,7 @@ const DEF_EX = ['开握悬挂'];
 const KEY = 'hb_cfg_v1', HKEY = 'hb_hist_v1';
 
 let cfg = {
-  preset:'fbo', name:'指力板 · 开握 7:50',
+  preset:'fbo', name:'指力板 · 开握 7:50', mode:'time', program:null,
   work:7, rest:50, reps:6, sets:3, setRest:120, warm:300, cool:180,
   prep:5,
   exercises: ['开握悬挂'],
@@ -267,6 +275,8 @@ function phaseSpeech(seg){
 /* ── 时间线 ── */
 let TL = [], idx = 0, remain = 0, running = false, paused = false, finished = false;
 let segEndAt = 0;          // 当前阶段的绝对结束时刻（performance.now 基准）
+let segStartAt = 0;        // 当前阶段开始时刻（计次模式正计时用）
+let openElapsed = 0;       // 计次段已用时间
 let ticker = null;         // setInterval 句柄
 const TICK_MS = 200;       // 刷新频率（被节流也能靠绝对时间校准）
 
@@ -278,29 +288,89 @@ function buildTimeline(){
   TL = [];
   if(cfg.warm > 0) TL.push({ type:'warm', label:'热身', dur:cfg.warm, color:'--blue' });
   if(cfg.prep > 0) TL.push({ type:'prep', label:'准备', dur:cfg.prep, color:'--orange' });
-  let rep = 0;
-  for(let s=1; s<=cfg.sets; s++){
-    for(let r=1; r<=cfg.reps; r++){
-      TL.push({ type:'work', label:'悬挂', dur:cfg.work, color:'--orange',
-                set:s, rep:r, ex:exerciseAt(rep) });
-      rep++;
-      if(r < cfg.reps) TL.push({ type:'rest', label:'间隔休息', dur:cfg.rest, color:'--green', set:s, rep:r });
+
+  if(cfg.mode === 'reps' && cfg.program && cfg.program.length){
+    // ═══ 计次模式：每个动作做 N 组，组内不计时，休息计时 ═══
+    const prog = cfg.program;
+    for(let e=0; e<prog.length; e++){
+      const it = prog[e];
+      for(let st=1; st<=it.sets; st++){
+        const isTime = it.type === 'time';
+        TL.push({
+          type:'work',
+          label: it.name,
+          open: !isTime,                    // 计次：开放式（不计时）
+          dur: isTime ? (it.work || 45) : 0,
+          target: it.target,
+          set: st, sets: it.sets,
+          ex: it.name,
+          color:'--orange'
+        });
+        const lastSet = (st === it.sets);
+        const lastEx  = (e === prog.length - 1);
+        if(!(lastSet && lastEx)){
+          TL.push({
+            type:'rest',
+            label: lastSet ? '换动作' : '组间休息',
+            dur: it.rest,
+            color:'--green',
+            next: lastSet ? (prog[e+1] ? prog[e+1].name : '') : it.name
+          });
+        }
+      }
     }
-    if(s < cfg.sets) TL.push({ type:'setrest', label:'组间休息', dur:cfg.setRest, color:'--green', nextSet:s+1 });
+  } else {
+    // ═══ 计时模式：悬挂 N 秒 / 休息 M 秒 ═══
+    let rep = 0;
+    for(let st=1; st<=cfg.sets; st++){
+      for(let r=1; r<=cfg.reps; r++){
+        TL.push({ type:'work', label:'悬挂', dur:cfg.work, color:'--orange',
+                  set:st, rep:r, ex:exerciseAt(rep) });
+        rep++;
+        if(r < cfg.reps) TL.push({ type:'rest', label:'间隔休息', dur:cfg.rest, color:'--green', set:st, rep:r });
+      }
+      if(st < cfg.sets) TL.push({ type:'setrest', label:'组间休息', dur:cfg.setRest, color:'--green', nextSet:st+1 });
+    }
   }
+
   if(cfg.cool > 0) TL.push({ type:'cool', label:'放松', dur:cfg.cool, color:'--blue' });
   TL.push({ type:'done', label:'完成', dur:0, color:'--green' });
   idx = 0; remain = TL[0] ? TL[0].dur : 0;
 }
+
 function totalSec(){
+  if(cfg.mode === 'reps' && cfg.program && cfg.program.length){
+    let t = cfg.warm + cfg.cool + cfg.prep;
+    let n = 0;
+    cfg.program.forEach(it => {
+      n += it.sets;
+      t += it.sets * (it.type === 'time' ? (it.work || 45) : 12);  // 计次动作按每组约 12 秒估
+      t += (it.sets - 1) * it.rest;
+    });
+    t += (n - cfg.program.length) * 0;   // 换动作的休息已含在 sets-1 内
+    // 动作之间的换场休息
+    for(let i=0; i<cfg.program.length-1; i++) t += cfg.program[i].rest;
+    return Math.round(t);
+  }
   return cfg.sets*cfg.reps*cfg.work
        + cfg.sets*(cfg.reps-1)*cfg.rest
        + Math.max(0, cfg.sets-1)*cfg.setRest
        + cfg.warm + cfg.cool + cfg.prep;
 }
 
-/* ── 渲染 ── */
 function paintInfo(){
+  const isReps = cfg.mode === 'reps' && cfg.program && cfg.program.length;
+  if(isReps){
+    const p = cfg.program;
+    const totalSets = p.reduce((a,x)=>a+x.sets,0);
+    $('gEx').innerHTML = p.slice(0,2).map(x=>x.name).join(' · ') + (p.length>2 ? ` <span style="color:var(--muted)">+${p.length-2}</span>` : '');
+    $('gSetRest').textContent = p[0].rest + ' 秒起';
+    $('gReps').textContent = `${p.length} 动作 × ${p[0].sets} 组`;
+    $('gTotal').textContent = fmt(totalSec());
+    $('gWarm').textContent = fmt(cfg.warm);
+    $('gCool').textContent = fmt(cfg.cool);
+    return;
+  }
   const ex = (cfg.exercises && cfg.exercises.length) ? cfg.exercises.filter(Boolean) : ['—'];
   if(!ex.length) ex.push('—');
   $('gEx').innerHTML = ex.slice(0,2).join(' · ') + (ex.length>2 ? ` <span style="color:var(--muted)">+${ex.length-2}</span>` : '');
@@ -310,6 +380,7 @@ function paintInfo(){
   $('gWarm').textContent = fmt(cfg.warm);
   $('gCool').textContent = fmt(cfg.cool);
 }
+
 function paintStage(){
   const idle = (!running && !finished && idx === 0);
   if(idle){
@@ -322,38 +393,79 @@ function paintStage(){
     $('ringFg').setAttribute('stroke', '#30d158');
     $('ringFg').setAttribute('stroke-dasharray', 289);
     $('ringFg').setAttribute('stroke-dashoffset', 289);
-    $('sub').innerHTML = `共 <b>${cfg.sets}</b> 组 × <b>${cfg.reps}</b> 次 · 每次 <b>${cfg.work}</b> 秒`;
+    if(cfg.mode === 'reps' && cfg.program){
+      const totalSets = cfg.program.reduce((a,x)=>a+x.sets,0);
+      $('sub').innerHTML = `<b>${cfg.program.length}</b> 个动作 · 共 <b>${totalSets}</b> 组`;
+    } else {
+      $('sub').innerHTML = `共 <b>${cfg.sets}</b> 组 × <b>${cfg.reps}</b> 次 · 每次 <b>${cfg.work}</b> 秒`;
+    }
     return;
   }
+
   const seg = TL[idx], stage = $('stage');
   stage.classList.toggle('done', !!seg && seg.type === 'done');
   if(!seg){ $('phase').textContent = '准备开始'; $('cd').textContent = fmt(0); $('sub').textContent = ''; return; }
-  $('phase').textContent = seg.label;
-  $('cd').textContent = fmt(seg.type === 'done' ? 0 : remain);
-  $('cd').classList.toggle('small', seg.type==='setrest' || seg.type==='warm' || seg.type==='cool');
+
   const col = getComputedStyle(document.documentElement).getPropertyValue(seg.color || '--orange').trim();
+  $('phase').textContent = seg.label;
+  const isOpen = !!seg.open;
+  $('cd').textContent = isOpen ? fmt(openElapsed) : fmt(seg.type === 'done' ? 0 : remain);
+  $('cd').classList.toggle('small', !isOpen && (seg.type==='setrest' || seg.type==='warm' || seg.type==='cool'));
   $('cd').style.color = col || '#ff9f0a';
   $('ringFg').setAttribute('stroke', col || '#ff9f0a');
+
+  // 进度环：计次段用「已用时间 / 20 秒」做一个柔和的示意
   const C = 2 * Math.PI * 46;
-  const pct = seg.dur ? Math.max(0, (seg.dur - remain) / seg.dur) : 1;
+  let pct = 0;
+  if(isOpen){ pct = Math.min(1, openElapsed / 20); }
+  else if(seg.dur){ pct = Math.max(0, (seg.dur - remain) / seg.dur); }
   $('ringFg').setAttribute('stroke-dasharray', C);
   $('ringFg').setAttribute('stroke-dashoffset', C * (1 - pct));
 
   let sub = '';
-  if(seg.type === 'work') sub = `第 <b>${seg.set}</b>/${cfg.sets} 组 · 第 <b>${seg.rep}</b>/${cfg.reps} 次` + (seg.ex ? ` · <b>${seg.ex}</b>` : '');
-  else if(seg.type === 'rest') sub = `第 <b>${seg.set}</b>/${cfg.sets} 组 · 休息 ${mins(cfg.rest)}`;
+  if(seg.type === 'work'){
+    if(isOpen){
+      sub = `第 <b>${seg.set}</b>/${seg.sets} 组 · 目标 <b>${seg.target || '—'}</b>`;
+    } else {
+      sub = `第 <b>${seg.set}</b>/${seg.sets} 组` + (seg.target ? ` · <b>${seg.target}</b>` : '');
+    }
+  }
+  else if(seg.type === 'rest'){
+    sub = seg.next ? `休息 ${mins(seg.dur)} · 下一个：<b>${seg.next}</b>` : `休息 ${mins(seg.dur)}`;
+  }
   else if(seg.type === 'setrest') sub = `下一组：第 <b>${seg.nextSet}</b>/${cfg.sets} 组`;
   else if(seg.type === 'warm') sub = '热身 · 手指、肩、腕';
   else if(seg.type === 'cool') sub = '放松 · 拉伸前臂';
   else if(seg.type === 'prep') sub = '准备开始';
   else if(seg.type === 'done') sub = '训练完成';
   $('sub').innerHTML = sub;
+
+  updatePlayBtn();
+}
+
+/* 主按钮文案：计次段显示「完成本组」 */
+function updatePlayBtn(){
+  const b = $('btnPlay'); if(!b) return;
+  if(!running){ b.textContent = finished ? '完成' : '开始'; b.className = 'play'; return; }
+  if(paused){ b.textContent = '继续'; b.className = 'play pause'; return; }
+  const seg = TL[idx];
+  if(seg && seg.open){ b.textContent = '完成本组'; b.className = 'play run'; return; }
+  b.textContent = '暂停'; b.className = 'play run';
 }
 
 /* ── 计时（绝对时间戳驱动，后台/锁屏也不跑偏） ── */
 function tick(){
   if(!running || paused) return;
   const now = performance.now();
+  const seg0 = TL[idx];
+
+  // ═══ 计次段：正计时，等人按「完成本组」，不自动推进 ═══
+  if(seg0 && seg0.open){
+    openElapsed = (now - segStartAt) / 1000;
+    paintStage();
+    return;
+  }
+
   const left = (segEndAt - now) / 1000;
 
   // 最后 3 秒提示音
@@ -375,8 +487,9 @@ function startTicker(){ stopTicker(); ticker = setInterval(tick, TICK_MS); }
 function stopTicker(){ if(ticker){ clearInterval(ticker); ticker = null; } }
 
 function enterSegment(){
-  // 以当前 remain 为基准，算出绝对结束时刻
-  segEndAt = performance.now() + Math.max(0, remain) * 1000;
+  segStartAt = performance.now();
+  openElapsed = 0;
+  segEndAt = segStartAt + Math.max(0, remain) * 1000;
 }
 function next(){
   idx++;
@@ -503,6 +616,7 @@ function stepper(key, label, sub, unit){
   </div>`;
 }
 function renderDrawer(){
+  const isReps = cfg.mode === 'reps' && cfg.program && cfg.program.length;
   const d = $('dbody');
   d.innerHTML = `
     <div class="group">
@@ -512,6 +626,18 @@ function renderDrawer(){
       </div>
     </div>
 
+    ${isReps ? `
+    <div class="group">
+      <h3>训练内容（照原始配方）</h3>
+      <div class="proglist">
+        ${cfg.program.map((it,ix)=>`<div class="progrow">
+          <span class="pi">${ix+1}</span>
+          <span class="pn">${it.name}</span>
+          <span class="pt">${it.target} · ${it.sets} 组 · 休 ${it.rest}s</span>
+        </div>`).join('')}
+      </div>
+      <div class="note">计次动作不计时 —— 做完自己点「完成本组」进休息。平板支撑是计时。</div>
+    </div>` : `
     <div class="group">
       <h3>时长参数</h3>
       ${stepper('work','单次悬挂','每次挂住的时长','秒')}
@@ -519,7 +645,7 @@ function renderDrawer(){
       ${stepper('reps','循环次数','每组悬挂几次','次')}
       ${stepper('sets','组数','整个训练做几组','组')}
       ${stepper('setRest','组间休息','两组之间','秒')}
-    </div>
+    </div>`}
 
     <div class="group">
       <h3>开与收</h3>
@@ -598,8 +724,9 @@ function bindDrawer(){
   d.querySelectorAll('[data-dec]').forEach(b => b.onclick = () => bump(b.dataset.dec, -1));
   d.querySelectorAll('[data-p]').forEach(c => c.onclick = () => {
     const k = c.dataset.p, p = PRESETS[k];
-    Object.assign(cfg, { preset:k, name:p.name, work:p.work, rest:p.rest, reps:p.reps,
-                         sets:p.sets, setRest:p.setRest, warm:p.warm, cool:p.cool });
+    Object.assign(cfg, { preset:k, name:p.name, mode:p.mode||'time', program:p.program||null,
+                         work:p.work||7, rest:p.rest||50, reps:p.reps||6,
+                         sets:p.sets||3, setRest:p.setRest||120, warm:p.warm||0, cool:p.cool||0 });
     if(p.ex) cfg.exercises = p.ex.slice();
     saveCfg(); renderDrawer(); renderPreset(); reset(); paintInfo();
   });
@@ -684,13 +811,18 @@ renderPreset(); paintInfo(); buildTimeline(); remain = TL[0] ? TL[0].dur : 0; pa
 $('btnCfg').onclick = openDrawer;
 $('btnClose').onclick = closeDrawer;
 $('mask').onclick = closeDrawer;
-$('btnPlay').onclick = togglePause;
+$('btnPlay').onclick = function(){
+  const seg = TL[idx];
+  if(running && !paused && seg && seg.open){ skip(); return; }
+  togglePause();
+};
 $('btnReset').onclick = reset;
 $('btnSkip').onclick = skip;
 $('preset').onchange = e => {
   const k = e.target.value, p = PRESETS[k];
-  Object.assign(cfg, { preset:k, name:p.name, work:p.work, rest:p.rest, reps:p.reps,
-                       sets:p.sets, setRest:p.setRest, warm:p.warm, cool:p.cool });
+  Object.assign(cfg, { preset:k, name:p.name, mode:p.mode||'time', program:p.program||null,
+                       work:p.work||7, rest:p.rest||50, reps:p.reps||6,
+                       sets:p.sets||3, setRest:p.setRest||120, warm:p.warm||0, cool:p.cool||0 });
   if(p.ex) cfg.exercises = p.ex.slice();
   saveCfg(); reset(); paintInfo();
 };
