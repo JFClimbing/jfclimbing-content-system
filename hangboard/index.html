@@ -135,7 +135,13 @@ body{
 .btn.pri{background:var(--orange);color:#000}
 .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);margin-top:8px}
 .proglist{display:flex;flex-direction:column;gap:6px;margin-top:4px}
-.progrow{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+.progrow{display:flex;flex-direction:column;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+.progrow .pr-top{display:flex;align-items:center;gap:10px}
+.palts{
+  width:100%;background:var(--card2);border:1px solid var(--line);color:var(--txt);
+  border-radius:8px;padding:8px 10px;font-size:13px;font-weight:600;
+  appearance:none;-webkit-appearance:none;
+}
 .progrow .pi{width:20px;height:20px;border-radius:50%;background:var(--card2);color:var(--muted);font-size:11px;font-weight:800;display:grid;place-items:center;flex:none}
 .progrow .pn{font-size:14.5px;font-weight:700;flex:none}
 .progrow .pt{margin-left:auto;font-size:12px;color:var(--muted);font-weight:600;text-align:right}
@@ -153,6 +159,19 @@ body{
 .histrow .h2{font-size:12.5px;color:var(--muted);margin-top:4px}
 .empty{color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
 .done .cd{color:var(--green)!important}
+.nowcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.nowcard .nw-name{font-size:16px;font-weight:800;margin-bottom:12px;word-break:break-all}
+.nowcard .nw-row{display:flex;align-items:center;gap:12px}
+.nowcard input[type=range]{-webkit-appearance:none;flex:1;height:4px;border-radius:2px;background:var(--line);outline:none}
+.nowcard input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--orange)}
+.nowcard .pct2{font-size:12px;font-weight:700;color:var(--muted);min-width:38px;text-align:right}
+.tracklist{display:flex;flex-direction:column;gap:8px}
+.track{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+.track.on{border-color:var(--orange);background:rgba(255,159,10,.10)}
+.track .pick{width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--card2);color:var(--orange);font-size:14px;font-weight:800;flex:none;cursor:pointer}
+.track .tname{flex:1;background:transparent;border:none;color:var(--txt);font-size:14.5px;font-weight:600;outline:none;min-width:0;padding:6px 2px}
+.track .mini{flex:none;padding:6px 10px;border-radius:8px;background:var(--card2);border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:700;cursor:pointer}
+.filebtn.wide{display:block;width:100%;text-align:center;margin-top:12px;padding:13px}
 </style>
 </head>
 <body>
@@ -202,6 +221,11 @@ body{
       </div>
     </section>
 
+    <!-- ═══ 音乐 ═══ -->
+    <section class="view" id="view-music">
+      <div class="page" id="musicPage"></div>
+    </section>
+
     <!-- ═══ 记录 ═══ -->
     <section class="view" id="view-log">
       <div class="page">
@@ -228,6 +252,10 @@ body{
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>
       计时
     </button>
+    <button data-tab="music">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+      音乐
+    </button>
     <button data-tab="log">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
       记录
@@ -240,6 +268,6 @@ body{
 </div>
 
 <video id="bgm" loop playsinline preload="auto" style="position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px"></video>
-<script src="app.js?v=15"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>
