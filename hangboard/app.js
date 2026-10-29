@@ -24,11 +24,26 @@ const PRESETS = {
     name:'手臂 + 背部（计次）', mode:'reps',
     warm:300, cool:180,
     program:[
-      { name:'引体向上',     target:'8–12 次',            sets:3, rest:90, type:'reps' },
-      { name:'俯卧撑',       target:'12–15 次',           sets:3, rest:90, type:'reps' },
+      { name:'引体向上', target:'8–12 次', sets:3, rest:90, type:'reps',
+        alts:[
+          { name:'引体向上',      target:'8–12 次',                        type:'reps' },
+          { name:'反向划船',      target:'10–12 次',                       type:'reps' },
+          { name:'跳跃引体+离心', target:'6 次（控制 3–5 秒下放）',          type:'reps' },
+          { name:'离心引体',      target:'6 次（下巴过杆，3–5 秒慢慢放到底）', type:'reps' }
+        ] },
+      { name:'俯卧撑', target:'12–15 次', sets:3, rest:90, type:'reps',
+        alts:[
+          { name:'标准俯卧撑', target:'12–15 次',                  type:'reps' },
+          { name:'跪姿俯卧撑', target:'10–12 次',                  type:'reps' },
+          { name:'窄距俯卧撑', target:'10–12 次（侧重肱三头）',      type:'reps' }
+        ] },
       { name:'澳式划船',     target:'10 次',              sets:3, rest:90, type:'reps' },
       { name:'小臂静态弯举', target:'15 次（顶峰停 2 秒）', sets:3, rest:60, type:'reps' },
-      { name:'平板支撑',     target:'30–60 秒',           sets:3, rest:60, type:'time', work:45 }
+      { name:'平板支撑',     target:'30–60 秒',           sets:3, rest:60, type:'time', work:45,
+        alts:[
+          { name:'平板支撑', target:'30–60 秒',      type:'time', work:45 },
+          { name:'侧平板',   target:'30–45 秒/侧',   type:'time', work:40 }
+        ] }
     ]
   },
 
@@ -43,7 +58,7 @@ const DEF_EX = ['开握悬挂'];
 const KEY = 'hb_cfg_v1', HKEY = 'hb_hist_v1';
 
 let cfg = {
-  preset:'fbo', name:'指力板 · 开握 7:50', mode:'time', program:null,
+  preset:'fbo', name:'指力板 · 开握 7:50', mode:'time', program:null, pick:[0,0,0,0,0],
   work:7, rest:50, reps:6, sets:3, setRest:120, warm:300, cool:180,
   prep:5,
   exercises: ['开握悬挂'],
@@ -118,7 +133,12 @@ function speak(text, rate){
     u.volume = 1;            // 系统音量上限
     u.rate = rate || 1.15;
     u.pitch = 1;
-    u.onend = () => { clearTimeout(duckTimer); duckTimer = null; applyVol(cfg.musicVol); };
+    u.onend = () => {
+      clearTimeout(duckTimer); duckTimer = null;
+      applyVol(cfg.musicVol, 0.35);
+      resumeAudio();                 // ⭐ 播报结束后把音频上下文救回来
+    };
+    u.onerror = () => { resumeAudio(); };
     speechSynthesis.speak(u);
     duck(2500);              // 说话时压住音乐（有 onend 兜底）
   }catch(e){}
@@ -136,6 +156,22 @@ function warmSpeech(){
 }
 if('speechSynthesis' in window){
   speechSynthesis.onvoiceschanged = () => { try{ speechSynthesis.getVoices(); }catch(e){} };
+}
+
+/* ⭐ iOS 上语音播报会打断 AudioContext，播完必须主动恢复 */
+function resumeAudio(){
+  const c = ac(); if(!c) return;
+  if(c.state !== 'running'){
+    try{ c.resume(); }catch(e){}
+  }
+}
+function watchAudioState(){
+  const c = ac(); if(!c) return;
+  c.onstatechange = () => {
+    if(c.state !== 'running' && running && !paused){
+      setTimeout(resumeAudio, 60);
+    }
+  };
 }
 
 /* ── 背景音乐（走 Web Audio GainNode，iOS 上才真能调音量） ── */
@@ -249,6 +285,163 @@ async function idbGet(k){
     });
   }catch(e){ return null; }
 }
+/* ══════════ 音乐库（多首 / 改名 / 切换） ══════════ */
+let bufCache = {};
+
+function uid(){ return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function tracks(){ return cfg.tracks || (cfg.tracks = []); }
+
+async function addTrack(file){
+  if(!file) return;
+  const id = uid();
+  await idbPut('music_' + id, file);
+  const nm = (file.name || '未命名').replace(/\.[^.]+$/, '');
+  tracks().push({ id, name: nm });
+  cfg.music = true;
+  await selectTrack(id, file);
+  saveCfg();
+  renderMusicPage(); renderDrawer(); syncMusicUI();
+}
+
+async function selectTrack(id, fileBlob){
+  const t = tracks().find(x => x.id === id);
+  if(!t) return;
+  cfg.trackId = id;
+  cfg.musicName = t.name;
+  const blob = fileBlob || await idbGet('music_' + id);
+  if(!blob){ cfg.musicName = t.name + '(文件丢失)'; return; }
+  const ctx = ac();
+  let buf = bufCache[id];
+  if(!buf && ctx && blob.type && blob.type.indexOf('audio') === 0){
+    try{
+      const ab = await blob.arrayBuffer();
+      buf = await new Promise((res, rej) => { try{ ctx.decodeAudioData(ab.slice(0), res, rej); }catch(e){ rej(e); } });
+      bufCache[id] = buf;
+    }catch(e){ buf = null; }
+  }
+  musicBuf = buf || null;
+  if(!musicBuf){
+    const m = bgm();
+    if(m){
+      if(m.src && m.src.indexOf('blob:') === 0) URL.revokeObjectURL(m.src);
+      m.src = URL.createObjectURL(blob);
+      m.loop = true;
+    }
+  }
+  saveCfg();
+  if(running && !paused && cfg.music) musicStart();
+}
+
+async function deleteTrack(id){
+  cfg.tracks = tracks().filter(x => x.id !== id);
+  delete bufCache[id];
+  await idbPut('music_' + id, null);
+  if(cfg.trackId === id){
+    musicStop();
+    cfg.music = false; cfg.trackId = ''; cfg.musicName = '';
+    musicBuf = null;
+    const m = bgm(); if(m) m.removeAttribute('src');
+    if(cfg.tracks.length) await selectTrack(cfg.tracks[0].id);
+  }
+  saveCfg(); renderMusicPage(); renderDrawer(); syncMusicUI();
+}
+
+function renameTrack(id, name){
+  const t = tracks().find(x => x.id === id);
+  if(!t) return;
+  t.name = name.trim() || '未命名';
+  if(cfg.trackId === id) cfg.musicName = t.name;
+  saveCfg(); syncMusicUI();
+}
+
+async function restoreTracks(){
+  cfg.tracks = cfg.tracks || [];
+  // 迁移旧的单曲存储
+  const old = await idbGet('music');
+  if(old && !cfg.tracks.length){
+    const id = uid();
+    await idbPut('music_' + id, old);
+    cfg.tracks.push({ id, name: cfg.musicName || '我的音乐' });
+    cfg.trackId = id;
+    await idbPut('music', null);
+  }
+  if(cfg.tracks.length){
+    const id = (cfg.trackId && cfg.tracks.some(x => x.id === cfg.trackId)) ? cfg.trackId : cfg.tracks[0].id;
+    await selectTrack(id);
+  }
+}
+
+function renderMusicPage(){
+  const el = $('musicPage'); if(!el) return;
+  const list = tracks();
+  const cur = list.find(x => x.id === cfg.trackId);
+  el.innerHTML = `
+    <div class="group">
+      <h3>正在播放</h3>
+      <div class="nowcard">
+        <div class="nw-name">${cur ? cur.name : '未选择音乐'}</div>
+        <div class="nw-row">
+          <button class="minibtn" id="btnPlayToggle">${cfg.music ? '暂停' : '播放'}</button>
+          <input type="range" id="volRange2" min="0" max="100" value="${Math.round(cfg.musicVol*100)}">
+          <span class="pct2">${Math.round(cfg.musicVol*100)}%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h3>音乐列表（${list.length}）</h3>
+      <div class="tracklist">
+        ${list.length ? list.map(t => `
+          <div class="track ${t.id === cfg.trackId ? 'on' : ''}">
+            <button class="pick" data-pick="${t.id}">${t.id === cfg.trackId ? '✓' : ''}</button>
+            <input class="tname" data-tn="${t.id}" value="${t.name.replace(/"/g,'&quot;')}">
+            <button class="mini" data-del="${t.id}">删</button>
+          </div>`).join('') : '<div class="empty">还没有音乐</div>'}
+      </div>
+      <label class="filebtn wide">＋ 添加音乐<input type="file" id="musicFileAdd" accept="audio/*,video/*" multiple hidden></label>
+      <div class="note">mp3 / m4a / wav 都行，也可以直接选视频（自动只播声音）。<b>切歌不会影响计时</b>，休息时随便换。</div>
+    </div>`;
+  bindMusicPage();
+}
+
+function bindMusicPage(){
+  const el = $('musicPage'); if(!el) return;
+  el.querySelectorAll('[data-pick]').forEach(b => b.onclick = async () => {
+    await selectTrack(b.dataset.pick);
+    cfg.music = true; saveCfg();
+    if(!paused && running) musicStart();
+    syncMusicUI(); renderMusicPage();
+  });
+  el.querySelectorAll('[data-tn]').forEach(inp => {
+    inp.onchange = () => { renameTrack(inp.dataset.tn, inp.value); renderMusicPage(); };
+    inp.onblur = () => { renameTrack(inp.dataset.tn, inp.value); };
+  });
+  el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    await deleteTrack(b.dataset.del);
+  });
+  const add = $('musicFileAdd');
+  if(add) add.onchange = async e => {
+    const fs = [...(e.target.files || [])];
+    for(const f of fs) await addTrack(f);
+    e.target.value = '';
+  };
+  const tg = $('btnPlayToggle');
+  if(tg) tg.onclick = () => {
+    if(!cfg.trackId){ switchTab('music'); return; }
+    cfg.music = !cfg.music;
+    saveCfg();
+    if(cfg.music){ resumeAudio(); musicStart(); } else { musicStop(true); }
+    syncMusicUI(); renderMusicPage();
+  };
+  const vr = $('volRange2');
+  if(vr) vr.oninput = () => {
+    musicSetVolume(vr.value / 100);
+    const p = el.querySelector('.pct2'); if(p) p.textContent = vr.value + '%';
+    const q = $('volQuick'); if(q) q.value = vr.value;
+    const qt = $('volQuickVal'); if(qt) qt.textContent = vr.value + '%';
+  };
+}
+
 async function loadMusicFile(file){
   if(!file) return;
   cfg.musicName = file.name;
@@ -334,7 +527,9 @@ function buildTimeline(){
     // ═══ 计次模式：每个动作做 N 组，组内不计时，休息计时 ═══
     const prog = cfg.program;
     for(let e=0; e<prog.length; e++){
-      const it = prog[e];
+      const base = prog[e];
+      const pk = (cfg.pick && cfg.pick[e] != null) ? cfg.pick[e] : 0;
+      const it = (base.alts && base.alts[pk]) ? Object.assign({}, base, base.alts[pk]) : base;
       for(let st=1; st<=it.sets; st++){
         const isTime = it.type === 'time';
         TL.push({
@@ -497,6 +692,8 @@ function updatePlayBtn(){
 /* ── 计时（绝对时间戳驱动，后台/锁屏也不跑偏） ── */
 function tick(){
   if(!running || paused) return;
+  // ⭐ 兜底：被语音/来电打断后，自动把音频上下文救回来
+  if(AC && AC.state !== 'running' && cfg.music){ try{ AC.resume(); }catch(e){} }
   const now = performance.now();
   const seg0 = TL[idx];
 
@@ -580,7 +777,8 @@ function start(){
   enterSegment();
   $('btnPlay').textContent = '暂停'; $('btnPlay').className = 'play run';
   if(cfg.wake) requestWake();
-  ac(); beep(880,0.1,0.3);
+  ac(); resumeAudio(); beep(880,0.1,0.3);
+  watchAudioState();
   warmSpeech();
   musicStart();
   paintStage();
@@ -596,6 +794,7 @@ function togglePause(){
     paintStage();
   } else {
     paused = false; enterSegment();
+    resumeAudio();
     musicStart();
     $('btnPlay').textContent = '暂停'; $('btnPlay').className = 'play run';
     startTicker();
@@ -680,11 +879,21 @@ function renderDrawer(){
     <div class="group">
       <h3>训练内容（照原始配方）</h3>
       <div class="proglist">
-        ${cfg.program.map((it,ix)=>`<div class="progrow">
-          <span class="pi">${ix+1}</span>
-          <span class="pn">${it.name}</span>
-          <span class="pt">${it.target} · ${it.sets} 组 · 休 ${it.rest}s</span>
-        </div>`).join('')}
+        ${cfg.program.map((it,ix)=>{
+          const pk = (cfg.pick && cfg.pick[ix] != null) ? cfg.pick[ix] : 0;
+          const cur = (it.alts && it.alts[pk]) ? it.alts[pk] : it;
+          const sel = it.alts ? `<select class="palts" data-pk="${ix}">${
+            it.alts.map((a,i)=>`<option value="${i}" ${i===pk?'selected':''}>${a.name}</option>`).join('')
+          }</select>` : '';
+          return `<div class="progrow">
+            <div class="pr-top">
+              <span class="pi">${ix+1}</span>
+              <span class="pn">${cur.name}</span>
+              <span class="pt">${cur.target} · ${it.sets} 组 · 休 ${it.rest}s</span>
+            </div>
+            ${sel}
+          </div>`;
+        }).join('')}
       </div>
       <div class="note">计次动作不计时 —— 做完自己点「完成本组」进休息。平板支撑是计时。</div>
     </div>` : `
@@ -801,6 +1010,8 @@ function bindDrawer(){
                          work:p.work||7, rest:p.rest||50, reps:p.reps||6,
                          sets:p.sets||3, setRest:p.setRest||120, warm:p.warm||0, cool:p.cool||0 });
     if(p.ex) cfg.exercises = p.ex.slice();
+  cfg.pick = p.program ? p.program.map(()=>0) : cfg.pick;
+    cfg.pick = p.program ? p.program.map(()=>0) : cfg.pick;
     saveCfg(); renderDrawer(); renderPreset(); reset(); paintInfo();
   });
   d.querySelectorAll('[data-sw]').forEach(s => s.onclick = () => {
@@ -850,6 +1061,17 @@ function bindDrawer(){
     await idbPut('music', null);
     renderDrawer();
   };
+  d.querySelectorAll('[data-pk]').forEach(sel => {
+    sel.onchange = () => {
+      const ix = +sel.dataset.pk;
+      if(!cfg.pick) cfg.pick = [];
+      cfg.pick[ix] = +sel.value;
+      saveCfg();
+      if(!running) reset();
+      paintInfo(); paintStage();
+      renderDrawer();
+    };
+  });
   $('btnApply').onclick = () => switchTab('timer');
   $('btnClearHist').onclick = () => { localStorage.removeItem(HKEY); renderHist(); renderHistFull(); };
 }
@@ -912,6 +1134,7 @@ function switchTab(t){
   document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   if(t === 'set') renderDrawer();
   if(t === 'log') renderHistFull();
+  if(t === 'music') renderMusicPage();
   if(t === 'timer'){ paintStage(); paintInfo(); }
 }
 function closeDrawer(){ switchTab('timer'); }
@@ -923,13 +1146,14 @@ paintInfo();
 buildTimeline();
 remain = TL[0] ? TL[0].dur : 0;
 paintStage();
-restoreMusic();
+restoreTracks();
 
 document.querySelectorAll('.tabbar button').forEach(btn => {
   btn.onclick = () => switchTab(btn.dataset.tab);
 });
 bindMusicBar();
 syncMusicUI();
+watchAudioState();
 $('btnPlay').onclick = function(){
   const seg = TL[idx];
   if(running && !paused && seg && seg.open){ skip(); return; }
@@ -943,6 +1167,7 @@ $('preset').onchange = e => {
                        work:p.work||7, rest:p.rest||50, reps:p.reps||6,
                        sets:p.sets||3, setRest:p.setRest||120, warm:p.warm||0, cool:p.cool||0 });
   if(p.ex) cfg.exercises = p.ex.slice();
+  cfg.pick = p.program ? p.program.map(()=>0) : cfg.pick;
   saveCfg(); reset(); paintInfo();
 };
 
