@@ -89,12 +89,20 @@ function buzz(p){ if(cfg.vibrate && navigator.vibrate){ try{ navigator.vibrate(p
 
 function speak(text, rate, interrupt){
   if(!cfg.voice || !('speechSynthesis' in window)) return;
-  try{
-    if(interrupt && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'zh-CN'; u.volume = 1; u.rate = rate || 1.2; u.pitch = 1;
-    speechSynthesis.speak(u);
-  }catch(e){}
+  const go = () => {
+    try{
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN'; u.volume = 1; u.rate = rate || 1.2; u.pitch = 1;
+      speechSynthesis.speak(u);
+    }catch(e){}
+  };
+  // ⚠️ iOS：cancel() 之后立刻 speak() 会被吞掉，必须隔一小会儿
+  if(interrupt && (speechSynthesis.speaking || speechSynthesis.pending)){
+    try{ speechSynthesis.cancel(); }catch(e){}
+    setTimeout(go, 90);
+  } else {
+    go();
+  }
 }
 let voiceWarm = false;
 function warmVoice(){
@@ -290,7 +298,7 @@ function next(){
   else if(seg.t === 'warm') say = '热身开始';
   else if(seg.t === 'cool') say = '放松';
   else if(seg.t === 'done') say = '完成';
-  if(say) setTimeout(() => speak(say, 1.2, true), 150);
+  if(say) setTimeout(() => speak(say, 1.25, true), 160);
 
   paint();
 }
