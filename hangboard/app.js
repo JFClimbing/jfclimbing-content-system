@@ -40,16 +40,47 @@ const PLANS = {
         alts:['平板支撑','侧平板'] }
     ]
   },
+  max: {
+    name:'最大力量 10 秒',
+    blocks:[
+      { name:'最大悬吊', type:'time', work:10, target:'10 秒', rounds:1, rest:0, sets:5, setRest:180 }
+    ]
+  },
+  abra: {
+    name:'Abrahangs 长组',
+    blocks:[
+      { name:'开握悬挂', type:'time', work:7, target:'7 秒', rounds:6, rest:3, sets:6, setRest:180 }
+    ]
+  },
+  dens: {
+    name:'密度 5:5',
+    blocks:[
+      { name:'开握悬挂', type:'time', work:5, target:'5 秒', rounds:10, rest:5, sets:3, setRest:120 }
+    ]
+  },
+  lite: {
+    name:'入门 6:4',
+    blocks:[
+      { name:'开握悬挂', type:'time', work:6, target:'6 秒', rounds:5, rest:4, sets:3, setRest:150 }
+    ]
+  },
+  fore: {
+    name:'前臂耐力 30:30',
+    blocks:[
+      { name:'开握悬挂', type:'time', work:30, target:'30 秒', rounds:3, rest:30, sets:3, setRest:120 }
+    ]
+  },
   custom: { name:'自定义', blocks:[] }
 };
 
 const KEY = 'hb_v3', HKEY = 'hb_hist_v3';
 
 let cfg = {
-  planId:'fbo',
+  planId:'b:fbo',
   planName:'开握 7:50',
   blocks: JSON.parse(JSON.stringify(PLANS.fbo.blocks)),
   pick:{},                         // 每个块选中的变式下标
+  saved:[],                        // 用户保存的计划
   warm:300, cool:180, prep:5,
   voice:true, beep:true, vibrate:true, wake:true,
   music:false, trackId:'', tracks:[]
@@ -60,6 +91,10 @@ function load(){
   try{
     const s = JSON.parse(localStorage.getItem(KEY));
     if(s && s.blocks) Object.assign(cfg, s);
+    if(cfg.planId && cfg.planId.indexOf(':') < 0){          // 旧格式迁移
+      cfg.planId = PLANS[cfg.planId] ? ('b:' + cfg.planId) : '';
+    }
+    if(!Array.isArray(cfg.saved)) cfg.saved = [];
   }catch(e){}
 }
 
@@ -626,21 +661,100 @@ function openSheet(kind){
   const t = $('shTitle'), b = $('shBody');
   if(kind === 'plan'){
     t.textContent = '训练计划';
-    b.innerHTML = Object.entries(PLANS).map(([k,p]) => `
-      <div class="pickrow ${cfg.planId===k?'on':''}" data-plan="${k}">
-        <span class="pn">${p.name}</span>
-        <span class="pd">${p.blocks.length ? p.blocks.map(x=>x.name).join(' · ').slice(0,18) : '自己搭'}</span>
-      </div>`).join('');
-    b.querySelectorAll('[data-plan]').forEach(r => r.onclick = () => {
-      const k = r.dataset.plan, p = PLANS[k];
-      cfg.planId = k; cfg.planName = p.name;
-      cfg.blocks = JSON.parse(JSON.stringify(p.blocks));
+    const curSaved = cfg.planId && cfg.planId.startsWith('s:');
+    b.innerHTML = `
+      <div style="padding:2px 2px 12px">
+        <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">计划名称（可直接改）</div>
+        <input class="sel2" id="planName" value="${(cfg.planName||'').replace(/"/g,'&quot;')}"
+               style="width:100%;font-size:15px;font-weight:800;padding:11px 12px">
+      </div>
+
+      <div style="font-size:12px;color:var(--muted);font-weight:700;margin:6px 2px 4px">内置计划</div>
+      ${Object.entries(PLANS).filter(([k])=>k!=='custom').map(([k,p2]) => `
+        <div class="pickrow ${cfg.planId===('b:'+k)?'on':''}" data-b="${k}">
+          <span class="pn">${p2.name}</span>
+          <span class="pd">${p2.blocks.length ? p2.blocks.length+' 个动作' : ''}</span>
+        </div>`).join('')}
+
+      <div style="font-size:12px;color:var(--muted);font-weight:700;margin:16px 2px 4px">我的计划（${cfg.saved.length}）</div>
+      ${cfg.saved.length ? cfg.saved.map(sp => `
+        <div class="pickrow ${cfg.planId===('s:'+sp.id)?'on':''}" data-s="${sp.id}">
+          <span class="pn">${sp.name}</span>
+          <span class="pd">${sp.blocks.length} 个动作</span>
+          <span class="blk-x" data-delplan="${sp.id}" style="margin-left:4px">✕</span>
+        </div>`).join('')
+        : '<div class="empty" style="padding:14px 0">还没有保存过计划</div>'}
+
+      <button class="btn pri" id="savePlan" style="margin:16px 0 10px">💾 保存当前计划</button>
+      ${curSaved ? '<button class="btn ghost" id="updPlan" style="margin-top:0">覆盖当前计划</button>' : ''}
+      <div style="height:8px"></div>
+    `;
+
+    // 改名
+    const ni = $('planName');
+    ni.oninput = () => {
+      cfg.planName = ni.value;
+      if(cfg.planId && cfg.planId.startsWith('s:')){
+        const sp = cfg.saved.find(x => 's:' + x.id === cfg.planId);
+        if(sp) sp.name = ni.value;
+      }
+      save(); paintInfo();
+    };
+
+    // 载入内置
+    b.querySelectorAll('[data-b]').forEach(r => r.onclick = () => {
+      const k = r.dataset.b, p2 = PLANS[k];
+      cfg.planId = 'b:' + k;
+      cfg.planName = p2.name;
+      cfg.blocks = JSON.parse(JSON.stringify(p2.blocks));
       cfg.pick = {};
-      running = false; finished = false; clearInterval(timer);
-      build(); remain = TL[0] ? TL[0].dur : 0;
-      save(); paintInfo(); paint(); paintBtn();
-      closeSheet();
+      changed(); closeSheet();
     });
+
+    // 载入我的
+    b.querySelectorAll('[data-s]').forEach(r => r.onclick = e => {
+      if(e.target.dataset.delplan) return;
+      const sp = cfg.saved.find(x => x.id === r.dataset.s);
+      if(!sp) return;
+      cfg.planId = 's:' + sp.id;
+      cfg.planName = sp.name;
+      cfg.blocks = JSON.parse(JSON.stringify(sp.blocks));
+      cfg.pick = JSON.parse(JSON.stringify(sp.pick || {}));
+      changed(); closeSheet();
+    });
+
+    // 删除
+    b.querySelectorAll('[data-delplan]').forEach(x => x.onclick = e => {
+      e.stopPropagation();
+      const id = x.dataset.delplan;
+      cfg.saved = cfg.saved.filter(v => v.id !== id);
+      if(cfg.planId === 's:' + id) cfg.planId = '';
+      save(); openSheet('plan');
+    });
+
+    // 保存为新计划
+    const sv = $('savePlan');
+    if(sv) sv.onclick = () => {
+      const name = (cfg.planName || '').trim() || '我的计划';
+      const id = 'p' + Date.now().toString(36);
+      cfg.saved.push({ id, name, blocks: JSON.parse(JSON.stringify(cfg.blocks)),
+                       pick: JSON.parse(JSON.stringify(cfg.pick || {})) });
+      cfg.planId = 's:' + id;
+      save(); openSheet('plan'); paintInfo();
+    };
+
+    // 覆盖
+    const up = $('updPlan');
+    if(up) up.onclick = () => {
+      const id = cfg.planId.slice(2);
+      const sp = cfg.saved.find(x => x.id === id);
+      if(sp){
+        sp.blocks = JSON.parse(JSON.stringify(cfg.blocks));
+        sp.pick = JSON.parse(JSON.stringify(cfg.pick || {}));
+        sp.name = cfg.planName || sp.name;
+        save(); openSheet('plan');
+      }
+    };
   }
 
   else if(kind === 'blocks'){
