@@ -132,14 +132,46 @@ function beep(freq, dur, vol){
 function buzz(p){ if(cfg.vibrate && navigator.vibrate){ try{ navigator.vibrate(p); }catch(e){} } }
 
 /* 语音 */
+let speaking = false;
+let speakGuard = null;
+
+/* iOS：<audio> 占着音频会话时 TTS 会没声音。
+   所以播报前主动暂停音乐，播完再自动接回。 */
 function speak(text, rate, interrupt){
   if(!cfg.voice || !('speechSynthesis' in window)) return;
   try{
     if(interrupt && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
+
+    speaking = true;
+    const m = music();
+    if(m && !m.paused){ try{ m.pause(); }catch(e){} }
+
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN'; u.volume = 1; u.rate = rate || 1.2; u.pitch = 1;
-    u.onend = () => { resumeLoop(0); };
+    const done = () => {
+      speaking = false;
+      clearTimeout(speakGuard);
+      resumeLoop(0);
+    };
+    u.onend = done;
+    u.onerror = done;
+    clearTimeout(speakGuard);
+    speakGuard = setTimeout(done, 6000);   // 兜底：onend 没触发也要恢复
+
     speechSynthesis.speak(u);
+  }catch(e){ speaking = false; }
+}
+
+/* iOS 需要一次用户手势内激活语音引擎，否则后面自动播报全是哑的 */
+let voiceWarm = false;
+function warmVoice(){
+  if(voiceWarm || !('speechSynthesis' in window)) return;
+  voiceWarm = true;
+  try{
+    const u = new SpeechSynthesisUtterance(' ');
+    u.lang = 'zh-CN'; u.volume = 0.01; u.rate = 2;
+    speechSynthesis.speak(u);
+    speechSynthesis.cancel();
   }catch(e){}
 }
 
@@ -174,6 +206,7 @@ function musicPlay(){
 function resumeLoop(tries){
   tries = tries || 0;
   clearTimeout(resumeTimer);
+  if(speaking) return;
   if(!cfg.music || !running || paused || !expectPlaying) return;
   const m = music();
   if(!m || !m.src) return;
@@ -189,6 +222,7 @@ function musicPause(){
 /* TTS 打断后系统会把 audio 暂停 —— 这里自动接回来 */
 let lastCT = -1, stuckCount = 0;
 function musicHeal(){
+  if(speaking) return;
   if(!cfg.music || !running || paused || !expectPlaying) return;
   const m = music();
   if(!m || !m.src) return;
@@ -492,6 +526,7 @@ function start(){
   enterSeg();
   if(cfg.wake) requestWake();
   ac(); if(AC && AC.state === 'suspended'){ try{ AC.resume(); }catch(e){} }
+  warmVoice();
   beep(880, 0.09, 0.3);
   if(cfg.music) musicPlay();
   paint(); paintBtn();
@@ -882,9 +917,8 @@ function cycleTrack(dir){
 }
 
 $('bgm').addEventListener('pause', () => {
-  if(expectPlaying && cfg.music && running && !paused){
-    resumeLoop(0);
-  }
+  if(speaking) return;                     // 是我们自己让出会话的
+  if(expectPlaying && cfg.music && running && !paused) resumeLoop(0);
 });
 
 document.addEventListener('keydown', e => {
