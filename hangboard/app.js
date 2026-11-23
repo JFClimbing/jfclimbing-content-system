@@ -31,7 +31,30 @@ const PLANS = {
   lite:  { name:'入门 6:4', blocks:[
             { name:'开握悬挂', type:'time', work:6, target:'6 秒', rounds:5, rest:4, sets:3, setRest:150 }] },
   fore:  { name:'前臂耐力 30:30', blocks:[
-            { name:'开握悬挂', type:'time', work:30, target:'30 秒', rounds:3, rest:30, sets:3, setRest:120 }] }
+            { name:'开握悬挂', type:'time', work:30, target:'30 秒', rounds:3, rest:30, sets:3, setRest:120 }] },
+
+  // ── 金字塔（每级一个时长，逐级升降）──
+  pyr:   { name:'指力金字塔 5-11-5', blocks:[
+            { name:'半抠金字塔', type:'time', pyramid:[5,7,9,11,9,7,5], rest:150, sets:1, setRest:150 }] },
+  pyrs:  { name:'指力金字塔（短）', blocks:[
+            { name:'半抠金字塔', type:'time', pyramid:[5,7,9,7,5], rest:120, sets:1, setRest:120 }] },
+
+  // ── 握法强化（乔罗北式：四种握法分别练）──
+  grip:  { name:'握法强化（四种握法）', blocks:[
+            { name:'开握', type:'time', work:10, target:'10 秒', rounds:1, sets:3, setRest:90 },
+            { name:'半抠', type:'time', work:8,  target:'8 秒',  rounds:1, sets:3, setRest:90 },
+            { name:'全抠', type:'time', work:5,  target:'5 秒',  rounds:1, sets:2, setRest:120 },
+            { name:'锁握（每侧）', type:'time', work:5, target:'5 秒 · 手肘 90°', rounds:1, sets:2, setRest:120 }] },
+
+  // ── 训练日完整版：金字塔 + 握法 + 上肢 ──
+  full:  { name:'完整训练日', blocks:[
+            { name:'半抠金字塔', type:'time', pyramid:[5,7,9,11,9,7,5], rest:150, sets:1, setRest:150 },
+            { name:'开握', type:'time', work:10, target:'10 秒', rounds:1, sets:2, setRest:90 },
+            { name:'锁握（每侧）', type:'time', work:5, target:'5 秒 · 手肘 90°', rounds:1, sets:2, setRest:90 },
+            { name:'引体向上', type:'reps', target:'6–8 次', rounds:1, sets:3, setRest:120,
+              alts:['引体向上','反向划船','离心引体'] },
+            { name:'俯卧撑', type:'reps', target:'12–15 次', rounds:1, sets:3, setRest:90,
+              alts:['标准俯卧撑','跪姿俯卧撑','窄距俯卧撑'] }] }
 };
 
 const KEY = 'hb_v4', HKEY = 'hb_hist_v4';
@@ -123,6 +146,10 @@ let running = false, paused = false, finished = false, timer = null;
 function totalSec(){
   let t = cfg.warm + cfg.cool + cfg.prep;
   cfg.blocks.forEach(b => {
+    if(b.pyramid && b.pyramid.length){
+      t += b.pyramid.reduce((a,x)=>a+x, 0) + (b.pyramid.length - 1) * (b.rest || 150);
+      return;
+    }
     const rounds = b.type === 'time' ? (b.rounds || 1) : 1;
     const work = b.type === 'time' ? (b.work || 0) : 12;
     t += b.sets * rounds * work;
@@ -140,6 +167,17 @@ function build(){
   cfg.blocks.forEach((b, bi) => {
     const pk = cfg.pick[bi] || 0;
     const nm = (b.alts && b.alts[pk]) ? b.alts[pk] : b.name;
+    // 金字塔：每级一个悬挂，级间长休息
+    if(b.pyramid && b.pyramid.length){
+      const total = b.pyramid.length;
+      b.pyramid.forEach((w, i) => {
+        TL.push({ t:'work', label:nm, dur:w, set:1, sets:1, round:i+1, rounds:total,
+                  target:`第 ${i+1} 级 · ${w} 秒`, c:'#ff9f0a' });
+        if(i < total - 1) TL.push({ t:'rest', label:'级间休息', dur:b.rest || 150, c:'#30d158', next:nm });
+      });
+      return;
+    }
+
     const rounds = b.type === 'time' ? (b.rounds || 1) : 1;
     for(let s = 1; s <= b.sets; s++){
       for(let r = 1; r <= rounds; r++){
@@ -538,6 +576,20 @@ function openSheet(kind){
       const isTime = bl.type === 'time';
       const sel = bl.alts ? `<select class="sel" data-alt="${i}">${
         bl.alts.map((n,j)=>`<option value="${j}" ${j===pk?'selected':''}>${n}</option>`).join('')}</select>` : '';
+      if(bl.pyramid && bl.pyramid.length){
+        return `<div class="blk">
+          <div class="blk-top">
+            <span class="blk-no">${i+1}</span>
+            <input class="blk-name" value="${bl.name}" data-bn="${i}">
+            <span class="blk-x" data-bd="${i}">✕</span>
+          </div>
+          <div class="blk-row"><span class="lb">金字塔</span>
+            <span style="font-size:13px;font-weight:700;color:var(--orange)">${bl.pyramid.join(' → ')} 秒</span></div>
+          <div class="blk-row">
+            <span class="lb">级间休</span><div class="stp"><button data-bf="${i}|rest" data-d="-1">−</button><div class="v">${bl.rest||150}<small>秒</small></div><button data-bf="${i}|rest" data-d="1">+</button></div>
+          </div>
+        </div>`;
+      }
       return `<div class="blk">
         <div class="blk-top">
           <span class="blk-no">${i+1}</span>
@@ -576,7 +628,7 @@ function openSheet(kind){
     b.querySelectorAll('[data-bf]').forEach(x => x.onclick = () => {
       const [i, f] = x.dataset.bf.split('|');
       const bl = cfg.blocks[+i], d = +x.dataset.d;
-      const lim = { work:[1,60,1], rounds:[1,20,1], rest:[1,120,1], sets:[1,15,1], setRest:[10,600,10] }[f];
+      const lim = { work:[1,60,1], rounds:[1,20,1], rest:[10,300,10], sets:[1,15,1], setRest:[10,600,10] }[f];
       bl[f] = Math.min(lim[1], Math.max(lim[0], (bl[f]||lim[0]) + d*lim[2]));
       if(f === 'rounds' && bl.rounds < 2 && !bl.rest) bl.rest = 3;
       changed(); openSheet('blocks');
